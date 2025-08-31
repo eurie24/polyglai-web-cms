@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Admin function - checks if user email is the admin email
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == 'polyglAITool@gmail.com';
+    }
+    
+    // Allow authenticated users to read/write their own user data
+    match /users/{userId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      
+      // Allow access to subcollections under a user document
+      match /{subcollection}/{document=**} {
+        allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+        allow write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      }
+    }
+    
+    // Allow authenticated users to manage languages and characters
+    match /languages/{languageId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null || isAdmin();
+      
+      // Allow access to characters subcollections
+      match /characters/{level} {
+        allow read: if request.auth != null;
+        allow write: if request.auth != null || isAdmin();
+        
+        // Allow access to character items
+        match /items/{itemId} {
+          allow read: if request.auth != null;
+          allow write: if request.auth != null || isAdmin();
+        }
+      }
+    }
+    
+    // Default rule - require admin for any other collections
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+} 
