@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { azureSpeechService } from '../services/azure-speech-service';
@@ -553,7 +553,7 @@ function generatePhonemeBreakdown(word: string, language: string, userTranscript
   return phonemes;
 }
 
-export default function EvalPage() {
+function EvalPageContent() {
   const params = useSearchParams();
   const [language] = useState<string>(params.get('language') || 'english');
   const [level] = useState<Level>((params.get('level') as Level) || 'beginner');
@@ -1178,6 +1178,21 @@ export default function EvalPage() {
 
 
     </div>
+  );
+}
+
+export default function EvalPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#1A237E] to-[#0277BD]">
+        <div className="text-white text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+          <p>Loading evaluation...</p>
+        </div>
+      </div>
+    }>
+      <EvalPageContent />
+    </Suspense>
   );
 }
 
