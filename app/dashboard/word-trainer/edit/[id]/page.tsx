@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, updateDoc, collection, query, orderBy, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../../../../src/lib/firebase';
@@ -33,22 +33,6 @@ export default function EditWordTrainerQuestion() {
     explanation: '',
   });
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (!user) {
-        router.push('/login');
-        return;
-      }
-      
-      Promise.all([
-        fetchLanguages(),
-        fetchQuestion()
-      ]);
-    });
-
-    return () => unsubscribe();
-  }, [router, questionId]);
-
   const fetchLanguages = async () => {
     try {
       const languagesRef = collection(db, 'languages');
@@ -70,7 +54,7 @@ export default function EditWordTrainerQuestion() {
     }
   };
 
-  const fetchQuestion = async () => {
+  const fetchQuestion = useCallback(async () => {
     try {
       const questionDoc = await getDoc(doc(db, 'wordTrainer', questionId));
       
@@ -97,7 +81,23 @@ export default function EditWordTrainerQuestion() {
       setError('Failed to load question. Please try again later.');
       setIsLoading(false);
     }
-  };
+  }, [questionId]);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+      
+      Promise.all([
+        fetchLanguages(),
+        fetchQuestion()
+      ]);
+    });
+
+    return () => unsubscribe();
+  }, [router, questionId, fetchQuestion]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;

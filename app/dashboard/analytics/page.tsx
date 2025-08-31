@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, getDocs, query, orderBy, limit, where, getCountFromServer } from 'firebase/firestore';
+import { collection, query, where, getCountFromServer } from 'firebase/firestore';
 import { auth, db } from '../../../src/lib/firebase';
 
 type AnalyticsData = {
@@ -42,19 +42,7 @@ export default function Analytics() {
   });
   const router = useRouter();
   
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (!user) {
-        router.push('/login');
-      } else {
-        fetchAnalyticsData();
-      }
-    });
-    
-    return () => unsubscribe();
-  }, [router]);
-
-  const fetchAnalyticsData = async () => {
+  const fetchAnalyticsData = useCallback(async () => {
     try {
       setLoading(true);
       
@@ -107,7 +95,19 @@ export default function Analytics() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        router.push('/login');
+      } else {
+        fetchAnalyticsData();
+      }
+    });
+    
+    return () => unsubscribe();
+  }, [router, fetchAnalyticsData]);
 
   // Helper function to generate dummy time series data
   const generateDummyTimeSeriesData = (days: number) => {

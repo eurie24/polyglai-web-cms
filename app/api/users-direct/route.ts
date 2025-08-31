@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import { db, auth } from '../../../src/lib/firebase';
-import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 
 // Define User type
 type User = {
   id: string;
   name?: string;
   email?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 export async function GET() {
@@ -48,7 +48,7 @@ export async function GET() {
           // Create user object
           let userData: User = {
             id: userId,
-            ...userDocSnap.data() as Record<string, any>
+            ...userDocSnap.data() as Record<string, unknown>
           };
           
           // Try to get profile data
@@ -59,15 +59,15 @@ export async function GET() {
             
             if (profileSnap.exists()) {
               console.log(`API: Found profile for ${userId}`);
-              const profileData = profileSnap.data() as Record<string, any>;
+              const profileData = profileSnap.data() as Record<string, unknown>;
               
               // Merge the data
               userData = {
                 ...userData,
                 ...profileData,
                 // Ensure basic fields exist
-                name: profileData?.name || userData.name || `User-${userId.substring(0, 6)}`,
-                email: profileData?.email || userData.email || `${userId.substring(0, 6)}@example.com`
+                name: (profileData?.name as string) || (userData.name as string) || `User-${userId.substring(0, 6)}`,
+                email: (profileData?.email as string) || (userData.email as string) || `${userId.substring(0, 6)}@example.com`
               };
             } else {
               console.log(`API: No profile doc found for ${userId}`);

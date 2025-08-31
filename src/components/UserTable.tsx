@@ -91,10 +91,10 @@ const UserRow = memo(({
       </td>
       <td className="px-3 sm:px-6 py-4 whitespace-nowrap hidden xl:table-cell">
         <div className="text-xs sm:text-sm text-gray-800">
-          {user.createdAt instanceof Date 
-            ? user.createdAt.toLocaleDateString() 
-            : typeof user.createdAt === 'string'
-              ? new Date(user.createdAt).toLocaleDateString()
+          {user.createdAt && typeof user.createdAt === 'string'
+            ? new Date(user.createdAt).toLocaleDateString()
+            : user.createdAt && typeof user.createdAt === 'object' && 'toLocaleDateString' in user.createdAt
+              ? (user.createdAt as Date).toLocaleDateString()
               : 'Unknown'}
         </div>
       </td>

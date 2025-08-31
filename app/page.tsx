@@ -9,6 +9,29 @@ export default function Home() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
+  const features = [
+    {
+      icon: "🎯",
+      title: "AI-Powered Precision",
+      description: "Advanced speech recognition with smart learning."
+    },
+    {
+      icon: "🌍",
+      title: "Multi-Language Support",
+      description: "Learn English, Mandarin, Spanish, Japanese, and Korean."
+    },
+    {
+      icon: "📊",
+      title: "Real-Time Feedback",
+      description: "Instant pronunciation scoring and improvement tips."
+    },
+    {
+      icon: "🎮",
+      title: "Gamified Learning",
+      description: "Fun challenges and progress tracking to keep you motivated."
+    }
+  ];
+
   useEffect(() => {
     setIsVisible(true);
     
@@ -32,35 +55,9 @@ export default function Home() {
         window.removeEventListener('scroll', handleScroll);
       }
     };
-  }, []);
+  }, [features.length]);
 
-  const features = [
-    {
-      icon: "🎯",
-      title: "AI-Powered Precision",
-      description: "Advanced speech recognition with smart learning."
-    },
-    {
-      icon: "🌍",
-      title: "Multilingual Support",
-      description: "Supports English, Mandarin, Hangugue, Nihongo, and Español."
-    },
-    {
-      icon: "📊",
-      title: "Real-Time Feedback",
-      description: "Instant scoring with tips to improve your pronunciation."
-    },
-    {
-      icon: "🈯",
-      title: "Smart Translation",
-      description: "Translate using camera, text, speech, or uploaded files."
-    },
-    {
-      icon: "🧠",
-      title: "Vocabulary Training",
-      description: "Multiple choice quizzes to practice and review words."
-    }
-  ];
+
 
   return (
     <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900">

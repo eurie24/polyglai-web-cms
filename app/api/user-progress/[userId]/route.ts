@@ -8,10 +8,10 @@ const PROGRESS_CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
 
 export async function GET(
   request: Request,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
-    const { userId } = params;
+    const { userId } = await params;
     
     if (!userId) {
       return NextResponse.json(

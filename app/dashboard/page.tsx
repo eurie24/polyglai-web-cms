@@ -792,19 +792,19 @@ export default function Dashboard() {
                                   // Get the actual assessment count from the fetched data
                                   if (typeof langProgress === 'object' && langProgress !== null) {
                                     // Use the assessmentCount field we added in the API
-                                    completedAssessments = langProgress.assessmentCount || 
-                                                         langProgress.wordAssessment || 
-                                                         langProgress.completedAssessments || 0;
+                                    completedAssessments = (langProgress as { assessmentCount?: number; wordAssessment?: number; completedAssessments?: number }).assessmentCount || 
+                                                         (langProgress as { assessmentCount?: number; wordAssessment?: number; completedAssessments?: number }).wordAssessment || 
+                                                         (langProgress as { assessmentCount?: number; wordAssessment?: number; completedAssessments?: number }).completedAssessments || 0;
                                     
                                     // If no direct count, try to count from assessments array
-                                    if (completedAssessments === 0 && langProgress.assessments) {
-                                      completedAssessments = Array.isArray(langProgress.assessments) ? 
-                                                           langProgress.assessments.length : 0;
+                                    if (completedAssessments === 0 && (langProgress as { assessments?: unknown[] }).assessments) {
+                                      completedAssessments = Array.isArray((langProgress as { assessments?: unknown[] }).assessments) ? 
+                                                           (langProgress as { assessments: unknown[] }).assessments.length : 0;
                                     }
                                     
                                     // If still no count, try to count from assessmentsByLevel
-                                    if (completedAssessments === 0 && langProgress.assessmentsByLevel) {
-                                      const assessmentsByLevel = langProgress.assessmentsByLevel;
+                                    if (completedAssessments === 0 && (langProgress as { assessmentsByLevel?: Record<string, unknown> }).assessmentsByLevel) {
+                                      const assessmentsByLevel = (langProgress as { assessmentsByLevel: Record<string, unknown> }).assessmentsByLevel;
                                       completedAssessments = Object.values(assessmentsByLevel).reduce((total: number, levelAssessments: unknown) => {
                                         return total + (Array.isArray(levelAssessments) ? levelAssessments.length : 0);
                                       }, 0);

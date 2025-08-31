@@ -5,12 +5,8 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { 
   collection, 
   getDocs, 
-  query, 
-  where, 
-  orderBy, 
   deleteDoc,
   doc,
-  addDoc,
   writeBatch
 } from 'firebase/firestore';
 import { auth, db } from '../../../src/lib/firebase';

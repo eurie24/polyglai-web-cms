@@ -36,18 +36,18 @@ export async function GET() {
           email: string;
           role: string;
           gender: string;
-          age: any;
+          age: string | number;
           location: string;
           profession: string;
           createdAt: string;
           lastLogin: string;
-          progress?: any;
-          [key: string]: any; // Allow additional properties
+          progress?: Record<string, unknown>;
+          [key: string]: unknown; // Allow additional properties
         };
         
         const userData: UserData = {
           id: userId,
-          ...doc.data() as Record<string, any>,
+          ...doc.data() as Record<string, unknown>,
           // Ensure we have standard property names that match our expected structure
           name: doc.data().displayName || doc.data().name || '',
           email: doc.data().email || '',
@@ -71,23 +71,23 @@ export async function GET() {
             .get();
             
           if (profileDoc.exists) {
-            const profileData = profileDoc.data() as Record<string, any>;
+            const profileData = profileDoc.data() as Record<string, unknown>;
             console.log(`Found profile/info data for user ${userId}:`, profileData);
             
             // Map specific fields if they exist in profile/info
-            if (profileData.age) userData.age = profileData.age;
-            if (profileData.gender) userData.gender = profileData.gender;
-            if (profileData.location) userData.location = profileData.location;
-            if (profileData.name) userData.name = profileData.name;
-            if (profileData.userType) userData.profession = profileData.userType;
-            if (profileData.avatarUrl || profileData.avatarURL) userData.photoURL = profileData.avatarUrl || profileData.avatarURL;
-            if (profileData.preferredLanguage) userData.preferredLanguage = profileData.preferredLanguage;
+            if (profileData.age) userData.age = profileData.age as string | number;
+            if (profileData.gender) userData.gender = profileData.gender as string;
+            if (profileData.location) userData.location = profileData.location as string;
+            if (profileData.name) userData.name = profileData.name as string;
+            if (profileData.userType) userData.profession = profileData.userType as string;
+            if (profileData.avatarUrl || profileData.avatarURL) userData.photoURL = (profileData.avatarUrl || profileData.avatarURL) as string;
+            if (profileData.preferredLanguage) userData.preferredLanguage = profileData.preferredLanguage as string;
             if (profileData.createdAt) userData.createdAt = formatDate(profileData.createdAt);
             if (profileData.updatedAt) userData.lastLogin = formatDate(profileData.updatedAt);
-            if (profileData.referralSource) userData.referralSource = profileData.referralSource;
+            if (profileData.referralSource) userData.referralSource = profileData.referralSource as string;
             
             // For more specific fields shown in the screenshot
-            if (profileData.avatarUrl) userData.avatarUrl = profileData.avatarUrl;
+            if (profileData.avatarUrl) userData.avatarUrl = profileData.avatarUrl as string;
             
             // Merge any other profile data
             Object.entries(profileData || {}).forEach(([key, value]) => {
@@ -111,7 +111,7 @@ export async function GET() {
             .get();
 
           if (!languagesSnapshot.empty) {
-            const progress: Record<string, any> = {};
+            const progress: Record<string, unknown> = {};
             
             for (const langDoc of languagesSnapshot.docs) {
               const languageName = langDoc.id;
@@ -158,11 +158,12 @@ export async function GET() {
         admin: true,
         source: 'admin-sdk'
       });
-    } catch (firestoreError: any) {
-      console.error('Firestore access error:', firestoreError.message);
-      throw new Error(`Firestore access error: ${firestoreError.message}`);
+    } catch (firestoreError: unknown) {
+      const error = firestoreError as { message?: string };
+      console.error('Firestore access error:', error.message);
+      throw new Error(`Firestore access error: ${error.message || 'Unknown error'}`);
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('API route error:', error);
     
     // Fallback to temporary hack API
@@ -179,7 +180,7 @@ export async function GET() {
           return NextResponse.json({
             ...data,
             note: data.note || "Fallback data used due to Admin SDK error",
-            adminError: error.message
+            adminError: error instanceof Error ? error.message : String(error)
           });
         }
       }
@@ -200,13 +201,13 @@ export async function GET() {
 }
 
 // Helper function to safely format different date types
-function formatDate(date: any): string {
+function formatDate(date: unknown): string {
   if (!date) return new Date().toISOString();
   
   try {
     // Handle Firestore timestamp
-    if (typeof date.toDate === 'function') {
-      return date.toDate().toISOString();
+    if (typeof date === 'object' && date !== null && 'toDate' in date && typeof (date as { toDate: () => Date }).toDate === 'function') {
+      return (date as { toDate: () => Date }).toDate().toISOString();
     }
     // Handle strings
     else if (typeof date === 'string') {
@@ -217,8 +218,8 @@ function formatDate(date: any): string {
       return date.toISOString();
     }
     // Handle objects with seconds
-    else if (date._seconds !== undefined) {
-      return new Date(date._seconds * 1000).toISOString();
+    else if (typeof date === 'object' && date !== null && '_seconds' in date && typeof (date as { _seconds: number })._seconds === 'number') {
+      return new Date((date as { _seconds: number })._seconds * 1000).toISOString();
     }
   } catch (err) {
     console.error('Error formatting date:', err);

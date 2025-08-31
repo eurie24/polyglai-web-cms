@@ -38,8 +38,9 @@ export async function DELETE(request: Request) {
           userRecord = await adminAuth.getUserByEmail(userId);
           actualAuthUid = userRecord.uid;
           console.log(`✅ Found user by email: ${userRecord.email} (UID: ${userRecord.uid})`);
-        } catch (emailError: any) {
-          console.log(`⚠️ User not found by email: ${emailError.message}`);
+        } catch (emailError: unknown) {
+          const error = emailError as { message?: string };
+          console.log(`⚠️ User not found by email: ${error.message || 'Unknown error'}`);
         }
       } else {
         // Try to get user by UID directly
@@ -48,8 +49,9 @@ export async function DELETE(request: Request) {
           userRecord = await adminAuth.getUser(userId);
           actualAuthUid = userRecord.uid;
           console.log(`✅ Found user by UID: ${userRecord.email} (${userRecord.uid})`);
-        } catch (uidError: any) {
-          console.log(`⚠️ User not found by UID: ${uidError.message}`);
+        } catch (uidError: unknown) {
+          const error = uidError as { message?: string };
+          console.log(`⚠️ User not found by UID: ${error.message || 'Unknown error'}`);
         }
       }
       
@@ -116,7 +118,7 @@ export async function DELETE(request: Request) {
               console.log(`✅ Deleted ${collectionName} document: ${doc.path}`);
               firestoreDeleted = true;
             }
-          } catch (subError) {
+          } catch {
             // Ignore errors for optional subcollections
             console.log(`ℹ️ No ${collectionName} subcollection for user ${id}`);
           }

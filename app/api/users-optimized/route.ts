@@ -3,7 +3,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { initAdmin } from '@/firebase/adminInit';
 
 // Simple in-memory cache (in production, use Redis or similar)
-const cache = new Map<string, { data: unknown; timestamp: number }>();
+const cache = new Map<string, { data: Record<string, unknown>[]; timestamp: number }>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 export async function GET() {
@@ -122,14 +122,14 @@ function formatDate(date: unknown): string {
   if (!date) return new Date().toISOString();
   
   try {
-    if (typeof date.toDate === 'function') {
-      return date.toDate().toISOString();
+    if (typeof (date as { toDate?: () => Date }).toDate === 'function') {
+      return (date as { toDate: () => Date }).toDate().toISOString();
     } else if (typeof date === 'string') {
       return date;
     } else if (date instanceof Date) {
       return date.toISOString();
-    } else if (date._seconds !== undefined) {
-      return new Date(date._seconds * 1000).toISOString();
+    } else if ((date as { _seconds?: number })._seconds !== undefined) {
+      return new Date((date as { _seconds: number })._seconds * 1000).toISOString();
     }
   } catch (err) {
     console.error('Error formatting date:', err);

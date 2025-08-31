@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Image from 'next/image';
 import { azureSpeechService } from '../services/azure-speech-service';
 import { db } from '../../src/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
@@ -554,8 +555,8 @@ function generatePhonemeBreakdown(word: string, language: string, userTranscript
 
 export default function EvalPage() {
   const params = useSearchParams();
-  const [language, setLanguage] = useState<string>(params.get('language') || 'english');
-  const [level, setLevel] = useState<Level>((params.get('level') as Level) || 'beginner');
+  const [language] = useState<string>(params.get('language') || 'english');
+  const [level] = useState<Level>((params.get('level') as Level) || 'beginner');
   const [targetText, setTargetText] = useState<string>(params.get('text') || '');
   const [isRecording, setIsRecording] = useState(false);
   const [status, setStatus] = useState('');
@@ -566,15 +567,15 @@ export default function EvalPage() {
   const [index, setIndex] = useState(0);
   const [showResult, setShowResult] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
-  const [recordStartTs, setRecordStartTs] = useState<number | null>(null);
-  const [recordMs, setRecordMs] = useState<number>(0);
-  const [sfxVolume, setSfxVolume] = useState<number>(1.0);
-  const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null);
-  const [overallScore, setOverallScore] = useState<number | null>(null);
 
-  const playTone = (frequency: number, durationMs: number) => {
+
+  const [sfxVolume] = useState<number>(1.0);
+  const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null);
+
+
+  const playTone = useCallback((frequency: number, durationMs: number) => {
     try {
-      const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      const AudioCtx = (window as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext || (window as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = new AudioCtx();
       const osc = ctx.createOscillator();
@@ -590,9 +591,9 @@ export default function EvalPage() {
         ctx.close();
       }, durationMs);
     } catch {}
-  };
+  }, [sfxVolume]);
 
-  const playSound = async (file: string, fallback?: { freq: number; ms: number }) => {
+  const playSound = useCallback(async (file: string, fallback?: { freq: number; ms: number }) => {
     try {
       const audio = new Audio(`/sounds/${file}`);
       audio.volume = Math.max(0, Math.min(1, sfxVolume));
@@ -600,7 +601,7 @@ export default function EvalPage() {
     } catch {
       if (fallback) playTone(fallback.freq, fallback.ms);
     }
-  };
+  }, [sfxVolume, playTone]);
 
   const speakText = (text: string) => {
     if (!text || !window.speechSynthesis) return;
@@ -666,7 +667,7 @@ export default function EvalPage() {
         const snap = await getDocs(ref);
         const list: { value: string; phonetic?: string }[] = [];
         snap.forEach(d => {
-          const data = d.data() as any;
+          const data = d.data() as { value?: string; phonetic?: string };
           if (data?.value) list.push({ value: data.value, phonetic: data.phonetic });
         });
         if (list.length > 0) {
@@ -685,7 +686,7 @@ export default function EvalPage() {
           setItems([]);
           if (!params.get('text')) setTargetText('hello');
         }
-      } catch (e) {
+      } catch {
         if (!params.get('text')) setTargetText('hello');
       }
     };
@@ -716,20 +717,18 @@ export default function EvalPage() {
     if (isRecording) return;
     setTranscript('');
     setScore(null);
-    setOverallScore(null);
     setRecordedAudio(null);
     
     try {
       const locale = azureLocaleMap[language] || 'en-US';
       setIsRecording(true);
-      setRecordStartTs(Date.now());
       
       // record start sound effect
       playSound('record_start.mp3', { freq: 880, ms: 120 });
       
       // Start audio recording using MediaRecorder
       let mediaRecorder: MediaRecorder | null = null;
-      let audioChunks: Blob[] = [];
+      const audioChunks: Blob[] = [];
       
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -769,13 +768,11 @@ export default function EvalPage() {
           const s = scorePronunciation(targetText, text, level);
           setScore(s);
           
-          // Calculate and set the overall score for consistency
-          const calculatedOverallScore = calculateOverallScore(targetText, text, level, language, s);
-          setOverallScore(calculatedOverallScore);
+          // Calculate the overall score for consistency
+          calculateOverallScore(targetText, text, level, language, s);
           
           setStatus('');
           setShowResult(true);
-          if (recordStartTs) setRecordMs(Date.now() - recordStartTs);
           
           // score-based sound effect
           if (s >= 90) playSound('excellent_score.mp3', { freq: 1200, ms: 180 });
@@ -796,11 +793,11 @@ export default function EvalPage() {
         (st) => setStatus(st)
       );
       stopRef.current = stop;
-    } catch (e: any) {
+    } catch (e: unknown) {
       setIsRecording(false);
-      setStatus(e?.message || 'Failed to start recording');
+      setStatus(e instanceof Error ? e.message : 'Failed to start recording');
     }
-  }, [isRecording, language, targetText, recordStartTs]);
+  }, [isRecording, language, targetText, level, playSound]);
 
   const stopRecording = useCallback(() => {
     if (stopRef.current) {
@@ -820,14 +817,14 @@ export default function EvalPage() {
     setShowDetails(false);
   };
 
-  const canShowAdvanced = useMemo(() => language === 'english', [language]);
+
 
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-5xl mx-auto px-6 py-6">
         {/* Language header */}
         <div className="flex items-center space-x-3 mb-8">
-          <img src={flagMap[language] || '/flags/Usa.svg'} alt={language} className="w-12 h-12 rounded-full object-contain" />
+          <Image src={flagMap[language] || '/flags/Usa.svg'} alt={language} width={48} height={48} className="w-12 h-12 rounded-full object-contain" />
           <div className="text-sm font-semibold tracking-wide text-gray-900">{language.toUpperCase()}</div>
         </div>
 
@@ -885,7 +882,7 @@ export default function EvalPage() {
             <h3 className="text-xl font-bold text-center text-gray-900 mb-4">{languageOptions.find(l => l.code === language)?.label} {level[0].toUpperCase() + level.slice(1)} Assessment</h3>
             <p className="text-center text-gray-600 mb-6">
               {(() => {
-                const calculatedScore = overallScore !== null ? overallScore : calculateOverallScore(targetText, transcript, level, language, score as number);
+                const calculatedScore = calculateOverallScore(targetText, transcript, level, language, score as number);
                 return calculatedScore >= 90 ? 'Excellent pronunciation' : calculatedScore >= 75 ? 'Good pronunciation' : 'Keep practicing';
               })()}
             </p>
@@ -896,13 +893,13 @@ export default function EvalPage() {
                 <svg className="w-32 h-32 -rotate-90" viewBox="0 0 36 36">
                   <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#e5e7eb" strokeWidth="2" />
                   <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#22c55e" strokeWidth="2" strokeDasharray={`${(() => {
-                    const calculatedScore = overallScore !== null ? overallScore : calculateOverallScore(targetText, transcript, level, language, score as number);
+                    const calculatedScore = calculateOverallScore(targetText, transcript, level, language, score as number);
                     return Math.min(calculatedScore, 100);
                   })()}, 100`} />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
                   <span className="text-2xl font-bold text-green-600">
-                    {overallScore !== null ? overallScore : calculateOverallScore(targetText, transcript, level, language, score as number)}%
+                    {calculateOverallScore(targetText, transcript, level, language, score as number)}%
                   </span>
                 </div>
               </div>
@@ -933,7 +930,7 @@ export default function EvalPage() {
             {/* Action Buttons */}
             <div className="flex justify-center space-x-4 mb-4">
               <button 
-                onClick={() => { setShowResult(false); setTranscript(''); setScore(null); setOverallScore(null); }} 
+                onClick={() => { setShowResult(false); setTranscript(''); setScore(null); }} 
                 className="px-5 py-2 rounded-full border border-gray-300 text-gray-700 text-sm font-semibold hover:bg-gray-50"
               >
                 TRY AGAIN
@@ -1054,7 +1051,7 @@ export default function EvalPage() {
                 <div className="divide-y">
                   {(() => {
                     // Use the same unified scoring function for consistency
-                    const overallScore = calculateOverallScore(targetText, transcript, level, language, score as number);
+                    calculateOverallScore(targetText, transcript, level, language, score as number);
                     
                     // For detailed feedback, we need to show individual metrics
                     const targetWords = (targetText || '').toLowerCase().split(/\s+/).filter(Boolean);

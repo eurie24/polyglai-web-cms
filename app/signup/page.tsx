@@ -22,7 +22,7 @@ export default function Signup() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
   const router = useRouter();
 
   // Check for auth state changes
@@ -42,7 +42,7 @@ export default function Signup() {
             createdAt: new Date().toISOString(),
           }, { merge: true });
           
-          setIsAuthenticated(true);
+
           router.push('/dashboard');
         } catch (err) {
           console.error("Error saving user data:", err);
@@ -105,12 +105,13 @@ export default function Signup() {
       
       console.log("User created successfully:", user.email);
       router.push('/dashboard');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Signup error:', err);
-      if (err.code === 'auth/email-already-in-use') {
+      const error = err as { code?: string; message?: string };
+      if (error.code === 'auth/email-already-in-use') {
         setError('An account with this email already exists');
       } else {
-        setError(err.message || 'Failed to sign up');
+        setError(error.message || 'Failed to sign up');
       }
       setLoading(false);
     }
@@ -142,9 +143,10 @@ export default function Signup() {
       }, { merge: true });
       
       router.push('/dashboard');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Google sign-in error:', err);
-      setError(`Google sign-in failed: ${err.message}`);
+      const error = err as { message?: string };
+      setError(`Google sign-in failed: ${error.message || 'Unknown error'}`);
       setLoading(false);
     }
   };

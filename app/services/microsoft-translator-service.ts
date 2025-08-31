@@ -56,7 +56,7 @@ export class MicrosoftTranslatorService {
     try {
       const { subscriptionKey, region } = this.getConfiguration();
       return subscriptionKey.length > 0 && region.length > 0;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -147,7 +147,7 @@ export class MicrosoftTranslatorService {
           const errorData = JSON.parse(errorBody);
           const errorMessage = errorData.error?.message || 'Unknown error';
           throw new Error(`Microsoft Translator error: ${errorMessage}`);
-        } catch (e) {
+        } catch {
           throw new Error(`Microsoft Translator error: ${response.status} - ${errorBody}`);
         }
       }
@@ -205,7 +205,7 @@ export class MicrosoftTranslatorService {
 
       if (response.ok) {
         const data = await response.json();
-        const translation = data.translation as { [key: string]: any };
+        const translation = data.translation as { [key: string]: { name: string } };
         
         const languages: LanguageInfo = {};
         Object.keys(translation).forEach((code) => {

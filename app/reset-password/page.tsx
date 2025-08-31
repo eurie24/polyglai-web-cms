@@ -39,7 +39,7 @@ export default function ResetPassword() {
         const email = await verifyPasswordResetCode(auth, oobCode);
         setEmail(email);
         setVerifying(false);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Error verifying reset code:', err);
         setError('This password reset link has expired or is invalid. Please request a new one.');
         setVerifying(false);
@@ -96,16 +96,17 @@ export default function ResetPassword() {
       setTimeout(() => {
         router.push('/login');
       }, 3000);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Password reset error:', err);
-      if (err.code === 'auth/expired-action-code') {
+      const error = err as { code?: string; message?: string };
+      if (error.code === 'auth/expired-action-code') {
         setError('This password reset link has expired. Please request a new one.');
-      } else if (err.code === 'auth/invalid-action-code') {
+      } else if (error.code === 'auth/invalid-action-code') {
         setError('This password reset link is invalid. Please request a new one.');
-      } else if (err.code === 'auth/weak-password') {
+      } else if (error.code === 'auth/weak-password') {
         setError('Please choose a stronger password.');
       } else {
-        setError(err.message || 'Failed to reset password. Please try again.');
+        setError(error.message || 'Failed to reset password. Please try again.');
       }
     } finally {
       setLoading(false);

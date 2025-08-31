@@ -83,14 +83,15 @@ export default function AdminLogin() {
       }
       
       router.push('/dashboard');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Admin login error:', err);
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+      const error = err as { code?: string; message?: string };
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
         setError('Invalid admin credentials');
-      } else if (err.code === 'auth/too-many-requests') {
+      } else if (error.code === 'auth/too-many-requests') {
         setError('Too many failed attempts. Please try again later.');
       } else {
-        setError(err.message || 'Failed to log in');
+        setError(error.message || 'Failed to log in');
       }
       setLoading(false);
     }
@@ -125,12 +126,13 @@ export default function AdminLogin() {
         setIsForgotPassword(false);
         setSuccessMessage('');
       }, 5000);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Admin password reset error:', err);
-      if (err.code === 'auth/user-not-found') {
+      const error = err as { code?: string; message?: string };
+      if (error.code === 'auth/user-not-found') {
         setError('Admin account not found');
       } else {
-        setError(err.message || 'Failed to send reset email');
+        setError(error.message || 'Failed to send reset email');
       }
     } finally {
       setLoading(false);
@@ -162,9 +164,10 @@ export default function AdminLogin() {
       
       // If admin, proceed to dashboard
       router.push('/dashboard');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Admin Google sign-in error:', err);
-      setError(`Admin authentication failed: ${err.message}`);
+      const error = err as { message?: string };
+      setError(`Admin authentication failed: ${error.message || 'Unknown error'}`);
       setLoading(false);
     }
   };

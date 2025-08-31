@@ -32,10 +32,10 @@ export async function GET() {
     } else {
       try {
         app = getApp('admin-app');
-      } catch (e) {
+      } catch {
         try {
           app = getApp('admin-app-debug');
-        } catch (e2) {
+        } catch {
           app = getApp(); // Try to get default app
         }
       }
@@ -43,7 +43,11 @@ export async function GET() {
     
     // Get Firestore instance
     const db = getFirestore(app);
-    const debug = {
+    const debug: {
+      collections: Record<string, { count: number; documents: Record<string, unknown> }>;
+      hardcodedUserIds: string[];
+      idResults: Record<string, unknown>;
+    } = {
       collections: {},
       hardcodedUserIds: [
         'sample-user-1',
@@ -81,13 +85,18 @@ export async function GET() {
         // Check main user document
         const userDoc = await db.collection('users').doc(userId).get();
         
-        const result = {
+        const result: {
+          exists: boolean;
+          data: admin.firestore.DocumentData | null | undefined;
+          profile: { exists: boolean; data: admin.firestore.DocumentData | null | undefined } | { error: string } | null;
+          stats: { exists: boolean; data: admin.firestore.DocumentData | null | undefined } | { error: string } | null;
+          settings: { exists: boolean; data: admin.firestore.DocumentData | null | undefined } | { error: string } | null;
+        } = {
           exists: userDoc.exists,
           data: userDoc.exists ? userDoc.data() : null,
           profile: null,
           stats: null,
-          settings: null,
-          error: null
+          settings: null
         };
         
         // Check subcollections if document exists
@@ -100,7 +109,7 @@ export async function GET() {
               data: profileDoc.exists ? profileDoc.data() : null
             };
           } catch (err) {
-            result.profile = { error: err.message };
+            result.profile = { error: err instanceof Error ? err.message : String(err) };
           }
           
           try {
@@ -111,7 +120,7 @@ export async function GET() {
               data: statsDoc.exists ? statsDoc.data() : null
             };
           } catch (err) {
-            result.stats = { error: err.message };
+            result.stats = { error: err instanceof Error ? err.message : String(err) };
           }
           
           try {
@@ -122,13 +131,13 @@ export async function GET() {
               data: settingsDoc.exists ? settingsDoc.data() : null
             };
           } catch (err) {
-            result.settings = { error: err.message };
+            result.settings = { error: err instanceof Error ? err.message : String(err) };
           }
         }
         
         debug.idResults[userId] = result;
       } catch (err) {
-        debug.idResults[userId] = { error: err.message };
+        debug.idResults[userId] = { error: err instanceof Error ? err.message : String(err) };
       }
     }
     
@@ -141,8 +150,8 @@ export async function GET() {
     console.error('Debug API error:', error);
     return NextResponse.json({
       success: false,
-      error: error.message,
-      stack: error.stack
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
     }, { status: 500 });
   }
 } 

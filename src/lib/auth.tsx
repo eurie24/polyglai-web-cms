@@ -7,7 +7,7 @@ import {
   createUserWithEmailAndPassword
 } from 'firebase/auth';
 import { auth, db } from './firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 
 type AuthContextType = {
   user: User | null;
@@ -57,7 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (email: string, password: string) => {
     try {
       setError(null);
-      const result = await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth, email, password);
       
       // Check if user has admin email
       if (!checkAdminByEmail(email)) {
@@ -67,8 +67,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       
       setIsAdmin(true);
-    } catch (err: any) {
-      setError(err.message || 'Failed to sign in');
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      setError(error.message || 'Failed to sign in');
       throw err;
     }
   };
@@ -98,8 +99,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // For regular users
         setIsAdmin(false);
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to sign up');
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      setError(error.message || 'Failed to sign up');
       throw err;
     }
   };
@@ -109,8 +111,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       await firebaseSignOut(auth);
       setIsAdmin(false);
-    } catch (err: any) {
-      setError(err.message || 'Failed to sign out');
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      setError(error.message || 'Failed to sign out');
       throw err;
     }
   };

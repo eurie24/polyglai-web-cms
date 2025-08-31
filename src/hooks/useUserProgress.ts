@@ -84,12 +84,12 @@ export const useUserProgress = (userId: string | null): UseUserProgressReturn =>
           timestamp: Date.now() 
         });
       } else {
-        throw new Error(data.error || 'API returned unsuccessful response');
+        throw new Error('API returned unsuccessful response');
       }
 
       setLoading(false);
     } catch (err: unknown) {
-      if (err.name === 'AbortError') {
+      if (err instanceof Error && err.name === 'AbortError') {
         return; // Request was cancelled
       }
       

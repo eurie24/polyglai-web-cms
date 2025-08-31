@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import Tesseract from 'tesseract.js';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -13,7 +13,9 @@ import { MicrosoftTranslatorService } from '../services/microsoft-translator-ser
 // Extend Window interface for Speech Recognition (keeping for compatibility)
 declare global {
   interface Window {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     webkitSpeechRecognition: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     SpeechRecognition: any;
   }
 }
@@ -56,15 +58,15 @@ export default function UserDashboard() {
   // File translation state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileTranslationResult, setFileTranslationResult] = useState('');
-  const [fileStatus, setFileStatus] = useState('');
-  const [featuredLanguage, setFeaturedLanguage] = useState<any>(null);
-  const [otherLanguages, setOtherLanguages] = useState<any[]>([]);
-  const [showDifficultyDialog, setShowDifficultyDialog] = useState(false);
-  const [selectedLanguage, setSelectedLanguage] = useState<any>(null);
+
+  const [featuredLanguage, setFeaturedLanguage] = useState<{ id: string; name: string; flag: string } | null>(null);
+  const [otherLanguages, setOtherLanguages] = useState<{ id: string; name: string; flag: string }[]>([]);
+  const [selectedLanguage, setSelectedLanguage] = useState<{ id: string; name: string; flag: string } | null>(null);
   const [activeProfileTab, setActiveProfileTab] = useState('achievements');
   
   // Speech recognition state
-  const [speechRecognition, setSpeechRecognition] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [speechRecognition, setSpeechRecognition] = useState<any | null>(null);
   const [speechStatus, setSpeechStatus] = useState<string>('');
   const [speechFailed, setSpeechFailed] = useState(false);
 
@@ -109,7 +111,7 @@ export default function UserDashboard() {
   };
 
   // Level Up language data
-  const levelUpLanguages = [
+  const levelUpLanguages = useMemo(() => [
     {
       name: 'ENGLISH',
       flag: '/flags/Usa.svg',
@@ -135,7 +137,7 @@ export default function UserDashboard() {
       flag: '/flags/Spain.svg',
       code: 'spanish',
     },
-  ];
+  ], []);
   
   const router = useRouter();
 
@@ -172,15 +174,24 @@ export default function UserDashboard() {
     loadVoices();
     synth.onvoiceschanged = loadVoices;
     return () => {
-      // @ts-ignore - some TS DOM libs allow null, some do not
       synth.onvoiceschanged = null;
     };
   }, []);
 
+  // Setup Level Up languages based on user's preferred language
+  const setupLevelUpLanguages = useCallback(() => {
+    const userPrefLanguage = preferredLanguage.toLowerCase();
+    const featured = levelUpLanguages.find(lang => lang.code === userPrefLanguage) || levelUpLanguages[0];
+    const others = levelUpLanguages.filter(lang => lang.code !== userPrefLanguage);
+    
+    setFeaturedLanguage(featured ? { id: featured.code, name: featured.name, flag: featured.flag } : null);
+    setOtherLanguages(others.map(lang => ({ id: lang.code, name: lang.name, flag: lang.flag })));
+  }, [preferredLanguage, levelUpLanguages]);
+
   // Setup Level Up languages when preferred language changes
   useEffect(() => {
     setupLevelUpLanguages();
-  }, [preferredLanguage]);
+  }, [preferredLanguage, setupLevelUpLanguages]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -399,30 +410,7 @@ export default function UserDashboard() {
     }
   };
 
-  // Debug function to check device capabilities
-  const debugDeviceInfo = () => {
-    const userAgent = navigator.userAgent;
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent) || 
-                    userAgent.includes('Mobile') || 
-                    userAgent.includes('Android') ||
-                    window.innerWidth <= 768;
-    
-    console.log('🔍 DEVICE DEBUG INFO:');
-    console.log('User Agent:', userAgent);
-    console.log('Window Width:', window.innerWidth);
-    console.log('Is Mobile:', isMobile);
-    console.log('Platform:', navigator.platform);
-    console.log('Vendor:', navigator.vendor);
-    console.log('Language:', navigator.language);
-    console.log('OnLine:', navigator.onLine);
-    console.log('Connection:', (navigator as any).connection);
-    console.log('Hardware Concurrency:', navigator.hardwareConcurrency);
-    console.log('Device Memory:', (navigator as any).deviceMemory);
-    console.log('Max Touch Points:', navigator.maxTouchPoints);
-    console.log('------------------------');
-    
-    return isMobile;
-  };
+
 
   // Alternative speech recognition using MediaRecorder API
   const startAlternativeSpeechRecognition = async (): Promise<string> => {
@@ -442,14 +430,11 @@ export default function UserDashboard() {
               // Stop all tracks
               stream.getTracks().forEach(track => track.stop());
               
-              // Create audio blob
-              const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-              
               // Try to convert audio to text using external service
               try {
-                const text = await convertAudioToText(audioBlob);
+                const text = await convertAudioToText();
                 resolve(text);
-              } catch (conversionError) {
+              } catch {
                 // If conversion fails, just return success message
                 resolve('Audio recorded successfully. Speech-to-text conversion failed, but you can type manually.');
               }
@@ -462,13 +447,13 @@ export default function UserDashboard() {
             setSpeechStatus('Recording... Click microphone again to stop');
             
             // Store the mediaRecorder instance so user can stop it manually
-            (window as any).currentMediaRecorder = mediaRecorder;
+            (window as { currentMediaRecorder?: MediaRecorder }).currentMediaRecorder = mediaRecorder;
             
             // Auto-stop after 15 seconds if user doesn't stop manually
             setTimeout(() => {
               if (mediaRecorder.state === 'recording') {
                 mediaRecorder.stop();
-                (window as any).currentMediaRecorder = null;
+                (window as { currentMediaRecorder?: MediaRecorder }).currentMediaRecorder = undefined;
               }
             }, 15000);
             
@@ -485,7 +470,7 @@ export default function UserDashboard() {
   };
 
   // Convert audio to text using external service
-  const convertAudioToText = async (audioBlob: Blob): Promise<string> => {
+  const convertAudioToText = async (): Promise<string> => {
     try {
       // Try using Web Speech API with a different approach
       const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
@@ -497,11 +482,13 @@ export default function UserDashboard() {
           recognition.interimResults = false;
           recognition.maxAlternatives = 1;
           
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           recognition.onresult = (event: any) => {
             const transcript = event.results[0][0].transcript;
             resolve(transcript);
           };
           
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           recognition.onerror = (event: any) => {
             reject(new Error('Speech recognition failed: ' + event.error));
           };
@@ -519,7 +506,7 @@ export default function UserDashboard() {
                 recognition.stop();
               }
             }, 5000);
-          } catch (error) {
+          } catch {
             reject(new Error('Failed to start speech recognition'));
           }
         });
@@ -531,29 +518,7 @@ export default function UserDashboard() {
     }
   };
 
-  // Get available speech recognition languages
-  // Get available speech recognition languages from Azure Speech Service
-  const getSpeechRecognitionLanguages = () => {
-    const azureLanguages = azureSpeechService.getAvailableLanguages();
-    const languages = Object.entries(azureLanguages).map(([code, name]) => {
-      // Map language codes to flag icons
-      let flag = '/flags/usa_icon.png'; // default
-      if (code.startsWith('es')) flag = '/flags/spain_icon.png';
-      else if (code.startsWith('zh')) flag = '/flags/china_icon.png';
-      else if (code.startsWith('ja')) flag = '/flags/japan_icon.png';
-      else if (code.startsWith('ko')) flag = '/flags/skorea_icon.png';
-      else if (code.startsWith('fr')) flag = '/flags/spain_icon.png';
-      else if (code.startsWith('de')) flag = '/flags/spain_icon.png';
-      else if (code.startsWith('it')) flag = '/flags/spain_icon.png';
-      else if (code.startsWith('pt')) flag = '/flags/spain_icon.png';
-      else if (code.startsWith('ru')) flag = '/flags/spain_icon.png';
-      else if (code.startsWith('ar')) flag = '/flags/spain_icon.png';
-      else if (code.startsWith('hi')) flag = '/flags/spain_icon.png';
-      
-      return { code, name, flag };
-    });
-    return languages;
-  };
+
 
   const startListening = async () => {
     // Check if Azure Speech Service is configured
@@ -845,16 +810,14 @@ export default function UserDashboard() {
     
     setIsTranslating(true);
     try {
-      setFileStatus('Preparing file...');
       const rawText = await extractTextFromFile(selectedFile);
 
       if (!rawText) {
         alert('No text detected. If you uploaded an image, please ensure it contains clear text.');
-        setFileStatus('');
+
         return;
       }
 
-      setFileStatus('Translating...');
       const translated = await translateViaLibre(rawText, sourceLanguage, targetLanguage);
       setFileTranslationResult(`Translated content from ${selectedFile.name}:\n\n${translated}`);
     } catch (error) {
@@ -862,7 +825,6 @@ export default function UserDashboard() {
       alert((error as Error)?.message || 'Failed to translate the file.');
     } finally {
       setIsTranslating(false);
-      setFileStatus('');
     }
   };
 
@@ -913,14 +875,13 @@ export default function UserDashboard() {
       const data = await resp.json();
       if (data && data.translatedText) return data.translatedText as string;
       throw new Error('No translatedText');
-    } catch (e) {
+    } catch {
       console.warn('LibreTranslate failed, returning original text');
       return text;
     }
   };
 
   const extractTextFromImage = async (file: File, langHint: string): Promise<string> => {
-    setFileStatus('Running OCR...');
     const lang = ocrLanguageMap[langHint] || 'eng';
     const { data } = await Tesseract.recognize(file, lang);
     return (data.text || '').trim();
@@ -931,32 +892,20 @@ export default function UserDashboard() {
       return extractTextFromImage(file, sourceLanguage);
     }
     if (file.type === 'text/plain') {
-      setFileStatus('Reading text file...');
       const text = await file.text();
       return text.trim();
     }
     throw new Error('Unsupported file type. Please upload an image or .txt file.');
   };
 
-  // Setup Level Up languages based on user's preferred language
-  const setupLevelUpLanguages = () => {
-    const userPrefLanguage = preferredLanguage.toLowerCase();
-    const featured = levelUpLanguages.find(lang => lang.code === userPrefLanguage) || levelUpLanguages[0];
-    const others = levelUpLanguages.filter(lang => lang.code !== userPrefLanguage);
-    
-    setFeaturedLanguage(featured);
-    setOtherLanguages(others);
-  };
-
   // Handle language selection for Level Up
-  const handleLanguageSelect = (language: any) => {
+  const handleLanguageSelect = (language: { code: string; name: string; flag: string }) => {
     // Toggle inline difficulty selector under the clicked language card
-    if (selectedLanguage?.code === language.code) {
+    if (selectedLanguage?.id === language.code) {
       setSelectedLanguage(null);
     } else {
-      setSelectedLanguage(language);
+      setSelectedLanguage({ id: language.code, name: language.name, flag: language.flag });
     }
-    setShowDifficultyDialog(false);
   };
 
   // Handle difficulty selection
@@ -988,36 +937,17 @@ export default function UserDashboard() {
       };
       const lang = samples[langCode] || samples.english;
       const key = (levelCode === 'advanced' && lang.advanced) ? 'advanced' : (levelCode as 'beginner' | 'intermediate');
-      return (lang as any)[key] || 'hello';
+      return (lang as { [key: string]: string })[key] || 'hello';
     };
 
-    const langCode = selectedLanguage?.code || 'english';
+    const langCode = selectedLanguage?.id || 'english';
     const text = getSampleText(langCode, difficulty);
     const url = `/eval?language=${encodeURIComponent(langCode)}&level=${encodeURIComponent(difficulty)}&text=${encodeURIComponent(text)}`;
     router.push(url);
     setSelectedLanguage(null);
   };
 
-  // Map display name to code for preferred language
-  const mapDisplayNameToCode = (languageValue: string): string => {
-    if (!languageValue) return 'english';
-    
-    const normalized = languageValue.trim();
-    const validCodes = ['english', 'mandarin', 'spanish', 'japanese', 'korean'];
-    if (validCodes.includes(normalized.toLowerCase())) {
-      return normalized.toLowerCase();
-    }
-    
-    const displayNameToCode: Record<string, string> = {
-      'English': 'english',
-      'Mandarin': 'mandarin', 
-      'Español': 'spanish',
-      'Nihongo': 'japanese',
-      'Hangugeo': 'korean',
-    };
-    
-    return displayNameToCode[normalized] || 'english';
-  };
+
 
   const buildLevelProgressBar = (label: string, current: number, total: number, color: string) => {
     const percentage = total > 0 ? (current / total) * 100 : 0;
@@ -1749,7 +1679,7 @@ export default function UserDashboard() {
                 {featuredLanguage && (
                   <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:p-8 hover:shadow-md transition-shadow">
                     <div 
-                      onClick={() => handleLanguageSelect(featuredLanguage)}
+                      onClick={() => handleLanguageSelect({ code: featuredLanguage.id, name: featuredLanguage.name, flag: featuredLanguage.flag })}
                       className="flex flex-col items-center cursor-pointer"
                     >
                       <img 
@@ -1762,7 +1692,7 @@ export default function UserDashboard() {
 
                     {/* Inline Difficulty Selector INSIDE the card with animation */}
                     <div 
-                      className={`overflow-hidden transition-all duration-300 ${selectedLanguage && selectedLanguage.code === featuredLanguage.code ? 'max-h-64 opacity-100 mt-4' : 'max-h-0 opacity-0'} `}
+                      className={`overflow-hidden transition-all duration-300 ${selectedLanguage && selectedLanguage.id === featuredLanguage.id ? 'max-h-64 opacity-100 mt-4' : 'max-h-0 opacity-0'} `}
                     >
                       <div className="border-t border-gray-200 pt-4">
                         <h3 className="text-lg font-bold text-gray-900 mb-3 text-center">Select Difficulty</h3>
@@ -1779,7 +1709,7 @@ export default function UserDashboard() {
                           >
                             Intermediate
                           </button>
-                          {featuredLanguage.code === 'english' && (
+                          {featuredLanguage.id === 'english' && (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleDifficultySelect('advanced'); }}
                               className="w-full bg-orange-100 hover:bg-orange-200 text-orange-800 font-bold py-3 px-4 rounded-lg transition-colors"
@@ -1805,7 +1735,7 @@ export default function UserDashboard() {
                   {otherLanguages.map((language, index) => (
                     <div key={index} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow">
                       <div
-                        onClick={() => handleLanguageSelect(language)}
+                        onClick={() => handleLanguageSelect({ code: language.id, name: language.name, flag: language.flag })}
                         className="flex items-center space-x-4 cursor-pointer"
                       >
                         <img 
@@ -1817,7 +1747,7 @@ export default function UserDashboard() {
                       </div>
 
                       {/* Inline Difficulty Selector per Language INSIDE the same card */}
-                      <div className={`overflow-hidden transition-all duration-300 ${selectedLanguage && selectedLanguage.code === language.code ? 'max-h-64 opacity-100 mt-3' : 'max-h-0 opacity-0'} `}>
+                      <div className={`overflow-hidden transition-all duration-300 ${selectedLanguage && selectedLanguage.id === language.id ? 'max-h-64 opacity-100 mt-3' : 'max-h-0 opacity-0'} `}>
                         <div className="border-t border-gray-200 pt-3">
                           <h4 className="text-md font-bold text-gray-900 mb-2 text-center">Select Difficulty</h4>
                           <div className="space-y-2">
@@ -1833,7 +1763,7 @@ export default function UserDashboard() {
                             >
                               Intermediate
                             </button>
-                            {language.code === 'english' && (
+                            {language.id === 'english' && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleDifficultySelect('advanced'); }}
                                 className="w-full bg-orange-100 hover:bg-orange-200 text-orange-800 font-bold py-2.5 px-4 rounded-lg transition-colors"

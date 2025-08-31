@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, getDocs, updateDoc, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
+import { updateDoc, doc } from 'firebase/firestore';
 import { auth, db } from '../../../src/lib/firebase';
 import AdminProtection from '../../../src/components/AdminProtection';
 
@@ -28,6 +28,165 @@ export default function UsersManagement() {
   const [error, setError] = useState('');
   const router = useRouter();
   
+  const fetchUsers = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+      
+      console.log("Fetching users from API...");
+      
+      // Try the Admin SDK API first since service account key is available
+      try {
+        const response = await fetch('/api/users');
+        
+        if (!response.ok) {
+          throw new Error(`API responded with status ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && data.users) {
+          console.log(`Admin API returned ${data.users.length} users`);
+          
+          // Convert the data to match our User type
+          const convertedUsers = data.users.map((user: Record<string, unknown>) => ({
+            id: user.id || user.uid || 'unknown',
+            name: user.name || user.displayName || 'Unnamed User',
+            email: user.email || 'No email',
+            role: user.role || 'user',
+            createdAt: user.createdAt || (user.metadata as { creationTime?: string })?.creationTime || new Date().toISOString(),
+            lastLogin: user.lastLogin || (user.metadata as { lastSignInTime?: string })?.lastSignInTime,
+            status: user.status || 'ACTIVE',
+            country: user.location || user.country || getRandomCountry(),
+            gender: user.gender || getRandomGender(),
+          }));
+          
+          setUsers(convertedUsers);
+          return;
+        } else {
+          throw new Error(data.error || 'API returned unsuccessful response');
+        }
+      } catch (error: unknown) {
+        console.error("Error fetching users with Admin SDK:", error);
+        
+        // Fall back to temp hack API
+        try {
+          console.log("Trying temp hack API...");
+          const response = await fetch('/api/temp-hack');
+          
+          if (!response.ok) {
+            throw new Error(`API responded with status ${response.status}`);
+          }
+          
+          const data = await response.json();
+          
+          if (data.success && data.users) {
+            console.log(`Temp hack API returned ${data.users.length} users`);
+            
+            // Convert the data to match our User type
+            const convertedUsers = data.users.map((user: Record<string, unknown>) => ({
+              id: user.id || 'unknown',
+              name: user.name || 'Unnamed User',
+              email: user.email || 'No email',
+              role: user.role || 'user',
+              createdAt: user.createdAt || new Date().toISOString(),
+              lastLogin: user.lastLogin,
+              status: user.status || 'ACTIVE',
+              country: user.location || user.country || getRandomCountry(),
+              gender: user.gender || getRandomGender(),
+            }));
+            
+            setUsers(convertedUsers);
+            return;
+          } else {
+            throw new Error(data.error || 'Temp API returned unsuccessful response');
+          }
+        } catch (tempError: unknown) {
+          console.error("Error fetching from temp hack API:", tempError);
+          
+          // Fall back to direct API
+          try {
+            console.log("Trying direct API...");
+            const response = await fetch('/api/users-direct');
+            
+            if (!response.ok) {
+              throw new Error(`API responded with status ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success && data.users) {
+              console.log(`Direct API returned ${data.users.length} users`);
+              
+              // Convert the data to match our User type
+              const convertedUsers = data.users.map((user: Record<string, unknown>) => ({
+                id: user.id || 'unknown',
+                name: user.name || 'Unnamed User',
+                email: user.email || 'No email',
+                role: user.role || 'user',
+                createdAt: user.createdAt || new Date().toISOString(),
+                lastLogin: user.lastLogin,
+                status: user.status || 'ACTIVE',
+                country: user.location || user.country || getRandomCountry(),
+                gender: user.gender || getRandomGender(),
+              }));
+              
+              setUsers(convertedUsers);
+              return;
+            } else {
+              throw new Error(data.error || 'Direct API returned unsuccessful response');
+            }
+          } catch (directError: unknown) {
+            console.error("Error fetching from direct API:", directError);
+            
+            // Fall back to alternative API
+            try {
+              console.log("Trying alternative API...");
+              const response = await fetch('/api/users-alt');
+              
+              if (!response.ok) {
+                throw new Error(`API responded with status ${response.status}`);
+              }
+              
+              const data = await response.json();
+              
+              if (data.success && data.users) {
+                console.log(`Alternative API returned ${data.users.length} users`);
+                
+                // Convert the data to match our User type
+                const convertedUsers = data.users.map((user: Record<string, unknown>) => ({
+                  id: user.id || 'unknown',
+                  name: user.name || 'Unnamed User',
+                  email: user.email || 'No email',
+                  role: user.role || 'user',
+                  createdAt: user.createdAt || new Date().toISOString(),
+                  lastLogin: user.lastLogin,
+                  status: user.status || 'ACTIVE',
+                  country: user.location || user.country || getRandomCountry(),
+                  gender: user.gender || getRandomGender(),
+                }));
+                
+                setUsers(convertedUsers);
+                return;
+              } else {
+                throw new Error(data.error || 'Alternative API returned unsuccessful response');
+              }
+            } catch (altError: unknown) {
+              console.error("Error fetching from alternative API:", altError);
+              setError('All API endpoints failed. Unable to load users.');
+            }
+          }
+        }
+      }
+    } catch (err: unknown) {
+      console.error('Error in fetchUsers:', err);
+      const error = err as { message?: string };
+      setError(`Error loading users: ${error?.message || 'Unknown error'}`);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
@@ -51,165 +210,7 @@ export default function UsersManagement() {
     });
     
     return () => unsubscribe();
-  }, [router]);
-
-  const fetchUsers = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      
-      console.log("Fetching users from API...");
-      
-      // Try the Admin SDK API first since service account key is available
-      try {
-        const response = await fetch('/api/users');
-        
-        if (!response.ok) {
-          throw new Error(`API responded with status ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        if (data.success && data.users) {
-          console.log(`Admin API returned ${data.users.length} users`);
-          
-          // Convert the data to match our User type
-          const convertedUsers = data.users.map((user: any) => ({
-            id: user.id || user.uid || 'unknown',
-            name: user.name || user.displayName || 'Unnamed User',
-            email: user.email || 'No email',
-            role: user.role || 'user',
-            createdAt: user.createdAt || user.metadata?.creationTime || new Date().toISOString(),
-            lastLogin: user.lastLogin || user.metadata?.lastSignInTime,
-            status: user.status || 'ACTIVE',
-            country: user.location || user.country || getRandomCountry(),
-            gender: user.gender || getRandomGender(),
-          }));
-          
-          setUsers(convertedUsers);
-          return;
-        } else {
-          throw new Error(data.error || 'API returned unsuccessful response');
-        }
-      } catch (error: any) {
-        console.error("Error fetching users with Admin SDK:", error);
-        
-        // Fall back to temp hack API
-        try {
-          console.log("Trying temp hack API...");
-          const response = await fetch('/api/temp-hack');
-          
-          if (!response.ok) {
-            throw new Error(`API responded with status ${response.status}`);
-          }
-          
-          const data = await response.json();
-          
-          if (data.success && data.users) {
-            console.log(`Temp hack API returned ${data.users.length} users`);
-            
-            // Convert the data to match our User type
-            const convertedUsers = data.users.map((user: any) => ({
-              id: user.id || 'unknown',
-              name: user.name || 'Unnamed User',
-              email: user.email || 'No email',
-              role: user.role || 'user',
-              createdAt: user.createdAt || new Date().toISOString(),
-              lastLogin: user.lastLogin,
-              status: user.status || 'ACTIVE',
-              country: user.location || user.country || getRandomCountry(),
-              gender: user.gender || getRandomGender(),
-            }));
-            
-            setUsers(convertedUsers);
-            return;
-          } else {
-            throw new Error(data.error || 'Temp API returned unsuccessful response');
-          }
-        } catch (tempError: any) {
-          console.error("Error fetching from temp hack API:", tempError);
-          
-          // Fall back to direct API
-          try {
-            console.log("Trying direct API...");
-            const response = await fetch('/api/users-direct');
-            
-            if (!response.ok) {
-              throw new Error(`API responded with status ${response.status}`);
-            }
-            
-            const data = await response.json();
-            
-            if (data.success && data.users) {
-              console.log(`Direct API returned ${data.users.length} users`);
-              
-              // Convert the data to match our User type
-              const convertedUsers = data.users.map((user: any) => ({
-                id: user.id || 'unknown',
-                name: user.name || 'Unnamed User',
-                email: user.email || 'No email',
-                role: user.role || 'user',
-                createdAt: user.createdAt || new Date().toISOString(),
-                lastLogin: user.lastLogin,
-                status: user.status || 'ACTIVE',
-                country: user.location || user.country || getRandomCountry(),
-                gender: user.gender || getRandomGender(),
-              }));
-              
-              setUsers(convertedUsers);
-              return;
-            } else {
-              throw new Error(data.error || 'Direct API returned unsuccessful response');
-            }
-          } catch (directError: any) {
-            console.error("Error fetching from direct API:", directError);
-            
-            // Fall back to alternative API
-            try {
-              console.log("Trying alternative API...");
-              const response = await fetch('/api/users-alt');
-              
-              if (!response.ok) {
-                throw new Error(`API responded with status ${response.status}`);
-              }
-              
-              const data = await response.json();
-              
-              if (data.success && data.users) {
-                console.log(`Alternative API returned ${data.users.length} users`);
-                
-                // Convert the data to match our User type
-                const convertedUsers = data.users.map((user: any) => ({
-                  id: user.id || 'unknown',
-                  name: user.name || 'Unnamed User',
-                  email: user.email || 'No email',
-                  role: user.role || 'user',
-                  createdAt: user.createdAt || new Date().toISOString(),
-                  lastLogin: user.lastLogin,
-                  status: user.status || 'ACTIVE',
-                  country: user.location || user.country || getRandomCountry(),
-                  gender: user.gender || getRandomGender(),
-                }));
-                
-                setUsers(convertedUsers);
-                return;
-              } else {
-                throw new Error(data.error || 'Alternative API returned unsuccessful response');
-              }
-            } catch (altError: any) {
-              console.error("Error fetching from alternative API:", altError);
-              setError('All API endpoints failed. Unable to load users.');
-            }
-          }
-        }
-      }
-    } catch (err: any) {
-      console.error('Error in fetchUsers:', err);
-      setError(`Error loading users: ${err?.message || 'Unknown error'}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [router, fetchUsers]);
 
   const getRandomCountry = () => {
     const countries = ['PH', 'US', 'UK', 'CA', 'AU', 'JP'];
@@ -221,23 +222,7 @@ export default function UsersManagement() {
     return genders[Math.floor(Math.random() * genders.length)];
   };
 
-  const handleToggleRole = async (userId: string, currentRole: string) => {
-    const newRole = currentRole === 'admin' ? 'user' : 'admin';
-    
-    try {
-      setLoading(true);
-      await updateDoc(doc(db, 'users', userId), {
-        role: newRole,
-      });
-      
-      await fetchUsers();
-    } catch (err) {
-      console.error('Error updating user role:', err);
-      setError('Failed to update user role');
-    } finally {
-      setLoading(false);
-    }
-  };
+
 
   const handleToggleStatus = async (userId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'DISABLED' ? 'ACTIVE' : 'DISABLED';

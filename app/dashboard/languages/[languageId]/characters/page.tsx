@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -10,15 +10,12 @@ import {
   getDocs, 
   getDoc, 
   doc, 
-  setDoc, 
   addDoc, 
   deleteDoc, 
   updateDoc, 
   query, 
-  where, 
   orderBy,
-  writeBatch,
-  serverTimestamp
+  writeBatch
 } from 'firebase/firestore';
 import { auth, db } from '../../../../../src/lib/firebase';
 import * as XLSX from 'xlsx';
@@ -219,37 +216,8 @@ export default function Characters() {
   const params = useParams();
   const languageId = params?.languageId as string;
   
-  useEffect(() => {
-    // Force light mode
-    document.documentElement.classList.remove('dark');
-    document.documentElement.style.colorScheme = 'light';
-    document.body.classList.add('light');
-    document.body.classList.remove('dark');
-    
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (!user) {
-        router.push('/login');
-      } else {
-        fetchLanguageDetails();
-      }
-    });
-    
-    return () => unsubscribe();
-  }, [router, languageId]);
-  
-  useEffect(() => {
-    if (language) {
-      fetchCharacters();
-    }
-  }, [language, currentLevel]);
-
-  // Clear selected characters when level changes
-  useEffect(() => {
-    setSelectedCharacters([]);
-  }, [currentLevel]);
-  
   // Fetch language details
-  const fetchLanguageDetails = async () => {
+  const fetchLanguageDetails = useCallback(async () => {
     try {
       setLoading(true);
       const languageDoc = await getDoc(doc(db, 'languages', languageId));
@@ -282,10 +250,10 @@ export default function Characters() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [languageId]);
   
   // Fetch characters for the current language and level
-  const fetchCharacters = async () => {
+  const fetchCharacters = useCallback(async () => {
     try {
       setLoading(true);
       // Now we get characters from the subcollection based on level
@@ -309,7 +277,36 @@ export default function Characters() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [languageId, currentLevel]);
+  
+  useEffect(() => {
+    // Force light mode
+    document.documentElement.classList.remove('dark');
+    document.documentElement.style.colorScheme = 'light';
+    document.body.classList.add('light');
+    document.body.classList.remove('dark');
+    
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        router.push('/login');
+      } else {
+        fetchLanguageDetails();
+      }
+    });
+    
+    return () => unsubscribe();
+  }, [router, languageId, fetchLanguageDetails]);
+  
+  useEffect(() => {
+    if (language) {
+      fetchCharacters();
+    }
+  }, [language, currentLevel, fetchCharacters]);
+
+  // Clear selected characters when level changes
+  useEffect(() => {
+    setSelectedCharacters([]);
+  }, [currentLevel]);
   
   // Add a new character
   const handleAddCharacter = async (e: React.FormEvent) => {
@@ -456,7 +453,7 @@ export default function Characters() {
               value: character.value,
               phonetic: character.phonetic,
               notes: character.notes || '',
-              etymology: (character as any).etymology || '', // Add etymology
+              etymology: (character as { etymology?: string }).etymology || '', // Add etymology
               createdAt: timestamp
             });
           }
@@ -580,8 +577,14 @@ export default function Characters() {
       const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
       // Skip header row and process data
-      const rows = jsonData.slice(1) as any[][];
-      const charactersToUpload: any[] = [];
+      const rows = jsonData.slice(1) as string[][];
+      const charactersToUpload: Array<{
+        value: string;
+        phonetic: string;
+        notes: string;
+        etymology: string;
+        createdAt: string;
+      }> = [];
       const errors: string[] = [];
 
       // Validate and process each row

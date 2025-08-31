@@ -101,7 +101,7 @@ export const useUsersData = (): UseUsersDataReturn => {
           setLoading(false);
           return;
         } else {
-          throw new Error(data.error || 'API returned unsuccessful response');
+          throw new Error('API returned unsuccessful response');
         }
       } catch (apiError: unknown) {
         if (apiError instanceof Error && apiError.name === 'AbortError') {
@@ -134,13 +134,13 @@ export const useUsersData = (): UseUsersDataReturn => {
           // Cache the results
           cache.set('users-data', { data: fallbackData.users, timestamp: Date.now() });
         } else {
-          throw new Error(fallbackData.error || 'Fallback API returned unsuccessful response');
+          throw new Error('Fallback API returned unsuccessful response');
         }
       }
 
       setLoading(false);
     } catch (err: unknown) {
-      if (err.name === 'AbortError') {
+      if (err instanceof Error && err.name === 'AbortError') {
         return; // Request was cancelled
       }
       

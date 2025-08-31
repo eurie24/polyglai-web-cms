@@ -9,7 +9,6 @@ import {
   sendPasswordResetEmail,
   GoogleAuthProvider,
   signInWithPopup,
-  getRedirectResult,
   onAuthStateChanged
 } from 'firebase/auth';
 import { auth } from '../../src/lib/firebase';
@@ -22,7 +21,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -84,12 +83,13 @@ export default function Login() {
       
       // For regular users, redirect to user dashboard
       router.push('/user-dashboard');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Login error:', err);
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+      const error = err as { code?: string; message?: string };
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
         setError('Invalid email or password');
       } else {
-        setError(err.message || 'Failed to log in');
+        setError(error.message || 'Failed to log in');
       }
       setLoading(false);
     }
@@ -120,12 +120,13 @@ export default function Login() {
         setIsForgotPassword(false);
         setSuccessMessage('');
       }, 5000);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Password reset error:', err);
-      if (err.code === 'auth/user-not-found') {
+      const error = err as { code?: string; message?: string };
+      if (error.code === 'auth/user-not-found') {
         setError('No account found with this email address');
       } else {
-        setError(err.message || 'Failed to send reset email');
+        setError(error.message || 'Failed to send reset email');
       }
     } finally {
       setLoading(false);
@@ -158,9 +159,10 @@ export default function Login() {
       
       // For regular users, redirect to user dashboard
       router.push('/user-dashboard');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Google sign-in error:', err);
-      setError(`Google sign-in failed: ${err.message}`);
+      const error = err as { message?: string };
+      setError(`Google sign-in failed: ${error.message || 'Unknown error'}`);
       setLoading(false);
     }
   };

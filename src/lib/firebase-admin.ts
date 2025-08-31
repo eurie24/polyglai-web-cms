@@ -42,17 +42,12 @@ try {
       console.error('Error getting existing admin app:', error);
     }
   }
-} catch (error: any) {
-  console.error('Firebase Admin initialization error:', error.message);
+} catch (error: unknown) {
+  const err = error as { message?: string };
+  console.error('Firebase Admin initialization error:', err.message);
 }
 
-// Define User type
-type User = {
-  id: string;
-  name?: string;
-  email?: string;
-  [key: string]: any;
-};
+
 
 // Function to get all users from Firestore with admin privileges
 export async function getAllUsers() {
@@ -112,8 +107,9 @@ export const getAdminDb = () => {
       throw new Error('Admin app not initialized');
     }
     return getFirestore(adminApp);
-  } catch (error: any) {
-    console.error('Error getting admin firestore:', error.message);
+  } catch (error: unknown) {
+    const err = error as { message?: string };
+    console.error('Error getting admin firestore:', err.message);
     return null;
   }
 };
@@ -124,8 +120,9 @@ export const getAdminAuth = () => {
       throw new Error('Admin app not initialized');
     }
     return getAuth(adminApp);
-  } catch (error: any) {
-    console.error('Error getting admin auth:', error.message);
+  } catch (error: unknown) {
+    const err = error as { message?: string };
+    console.error('Error getting admin auth:', err.message);
     return null;
   }
 };

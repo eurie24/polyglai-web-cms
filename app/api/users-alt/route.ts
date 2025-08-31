@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
 import { db } from '../../../src/lib/firebase';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 
 // Define User type
 type User = {
   id: string;
   name?: string;
   email?: string;
-  progress?: any;
-  [key: string]: any;
+  progress?: Record<string, unknown>;
+  [key: string]: unknown;
 };
 
 export async function GET() {
@@ -29,7 +29,7 @@ export async function GET() {
       // Create a user object with base data
       let userData: User = {
         id: userId,
-        ...userDoc.data() as Record<string, any>
+        ...userDoc.data() as Record<string, unknown>
       };
       
       try {
@@ -41,13 +41,13 @@ export async function GET() {
         // Look for the 'info' document
         const infoDoc = profileSnapshot.docs.find(doc => doc.id === 'info');
         if (infoDoc) {
-          const profileData = infoDoc.data() as Record<string, any>;
+          const profileData = infoDoc.data() as Record<string, unknown>;
           userData = {
             ...userData,
             ...profileData,
             // Ensure basic fields exist
-            name: profileData?.name || userData.name || `User-${userId.substring(0, 6)}`,
-            email: profileData?.email || userData.email || `${userId.substring(0, 6)}@example.com`
+            name: (profileData?.name as string) || (userData.name as string) || `User-${userId.substring(0, 6)}`,
+            email: (profileData?.email as string) || (userData.email as string) || `${userId.substring(0, 6)}@example.com`
           };
         }
       } catch (error) {
@@ -60,7 +60,7 @@ export async function GET() {
         const languagesSnapshot = await getDocs(languagesRef);
 
         if (!languagesSnapshot.empty) {
-          const progress: Record<string, any> = {};
+          const progress: Record<string, unknown> = {};
           
           for (const langDoc of languagesSnapshot.docs) {
             const languageName = langDoc.id;

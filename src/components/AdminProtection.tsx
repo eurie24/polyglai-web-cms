@@ -57,7 +57,7 @@ export default function AdminProtection({ children }: AdminProtectionProps) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <p className="text-red-500">You don't have permission to access this page. Redirecting...</p>
+          <p className="text-red-500">You don&apos;t have permission to access this page. Redirecting...</p>
         </div>
       </div>
     );

@@ -1,6 +1,6 @@
 // Azure Speech Service for Web - Replaces unreliable browser Web Speech API
 import { azureConfig } from '../config/azure-config';
-import { createTestWavBlob, getAzureCompatibleMimeType } from '../utils/audio-helper';
+import { createTestWavBlob } from '../utils/audio-helper';
 
 export class AzureSpeechService {
   private subscriptionKey: string;
@@ -280,7 +280,7 @@ export class AzureSpeechService {
             
             // Try to convert WebM to WAV using AudioContext
             try {
-              const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+              const audioContext = new (window.AudioContext || (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)();
               const arrayBuffer = await audioBlob.arrayBuffer();
               const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
               
@@ -421,14 +421,15 @@ export class AzureSpeechService {
    */
   private async fallbackToBrowserSpeechRecognition(language: string, onStatus: (status: string) => void): Promise<string> {
     return new Promise((resolve, reject) => {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      const SpeechRecognitionClass = (window as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown }).SpeechRecognition || (window as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown }).webkitSpeechRecognition;
       
-      if (!SpeechRecognition) {
+            if (!SpeechRecognitionClass) {
         reject(new Error('Browser speech recognition not supported'));
         return;
       }
-      
-      const recognition = new SpeechRecognition();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const recognition = new (SpeechRecognitionClass as any)();
       recognition.continuous = false;
       recognition.interimResults = false;
       recognition.lang = language;
@@ -439,7 +440,7 @@ export class AzureSpeechService {
         onStatus('Browser speech recognition started...');
       };
       
-      recognition.onresult = (event: any) => {
+      recognition.onresult = (event: { resultIndex: number; results: Array<{ [0]: { transcript: string }; isFinal: boolean }> }) => {
         let interimTranscript = '';
         
         for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -454,7 +455,7 @@ export class AzureSpeechService {
         onStatus(`Browser: ${finalTranscript || interimTranscript}`);
       };
       
-      recognition.onerror = (event: any) => {
+      recognition.onerror = (event: { error: string }) => {
         console.error('Browser speech recognition error:', event.error);
         reject(new Error(`Browser speech recognition failed: ${event.error}`));
       };
