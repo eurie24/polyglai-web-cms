@@ -131,11 +131,12 @@ export class UserService {
       await getDoc(doc(db, 'users', userId, 'languages', languageId.toLowerCase()));
 
       const scores: UserScore[] = [];
-      const levelBreakdown = {
+      type LevelKey = 'beginner' | 'intermediate' | 'advanced';
+      const levelBreakdown: Record<LevelKey, { count: number; total: number; highest: number }> = {
         beginner: { count: 0, total: 0, highest: 0 },
         intermediate: { count: 0, total: 0, highest: 0 },
         advanced: { count: 0, total: 0, highest: 0 }
-      } as const;
+      };
 
       const levels = ['beginner', 'intermediate', 'advanced'] as const;
       for (const level of levels) {

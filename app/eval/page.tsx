@@ -259,6 +259,29 @@ function normalizeForMatch(text: string): string {
     .toLowerCase();
 }
 
+// Safely convert various timestamp representations to a Date
+function toDateSafe(date: unknown): Date | null {
+  if (date == null) return null;
+  if (date instanceof Date) return isNaN(date.getTime()) ? null : date;
+  if (typeof date === 'string' || typeof date === 'number') {
+    const d = new Date(date as string | number);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof date === 'object') {
+    const possible = date as { toDate?: () => Date; seconds?: number; nanoseconds?: number };
+    if (typeof possible.toDate === 'function') {
+      const d = possible.toDate();
+      return d instanceof Date && !isNaN(d.getTime()) ? d : null;
+    }
+    if (typeof possible.seconds === 'number') {
+      const ms = possible.seconds * 1000 + Math.floor((possible.nanoseconds ?? 0) / 1_000_000);
+      const d = new Date(ms);
+      return isNaN(d.getTime()) ? null : d;
+    }
+  }
+  return null;
+}
+
 // Unified scoring function to ensure consistency across all UI sections
 function calculateOverallScore(targetText: string, transcript: string, level: string, language: string, originalScore: number): number {
   if (level === 'beginner') {
@@ -579,12 +602,27 @@ function EvalPageContent() {
   const [highScores, setHighScores] = useState<HighScore | null>(null);
   const [loadingHighScores, setLoadingHighScores] = useState(false);
   const [showDetailedFeedback, setShowDetailedFeedback] = useState(false);
+  // Local types compatible with AssessmentFeedback props
+  type AssessmentApiResultLocal = {
+    words?: Array<{
+      phonemes?: Array<{ phone?: string; phoneme?: string; pronunciation?: number; tone?: number }>;
+      word?: string;
+      scores?: { overall?: number };
+    }>;
+    pronunciation?: number;
+    fluency?: number;
+    integrity?: number;
+    prosody?: number;
+    rhythm?: number;
+    rear_tone?: string;
+  };
+  type AssessmentApiResponseLocal = { result?: AssessmentApiResultLocal };
   interface DetailedFeedbackData {
     targetText: string;
     level: Level;
     language: string;
     overallScore: number;
-    apiResponse: unknown;
+    apiResponse: AssessmentApiResponseLocal;
     isHighScore: boolean;
   }
   const [detailedFeedbackData, setDetailedFeedbackData] = useState<DetailedFeedbackData | null>(null);
@@ -1403,10 +1441,10 @@ function EvalPageContent() {
                         <div className="flex justify-between items-center">
                           <span className="text-gray-700">Date:</span>
                           <span className="font-semibold">
-                            {highScores.recentScores[0].timestamp ? 
-                              new Date(highScores.recentScores[0].timestamp?.toDate?.() || highScores.recentScores[0].timestamp).toLocaleDateString() : 
-                              'N/A'
-                            }
+                            {(() => {
+                              const d = toDateSafe(highScores.recentScores[0].timestamp);
+                              return d ? d.toLocaleDateString() : 'N/A';
+                            })()}
                           </span>
                         </div>
                       </div>
@@ -1424,7 +1462,7 @@ function EvalPageContent() {
                             level: level,
                             language: language,
                             overallScore: scoreData.overallScore || scoreData.score,
-                            apiResponse: scoreData.apiResponse || {},
+                            apiResponse: (scoreData.apiResponse as AssessmentApiResponseLocal) || {},
                             isHighScore: false // This is historical data, not a new high score
                           });
                           setShowDetailedFeedback(true);

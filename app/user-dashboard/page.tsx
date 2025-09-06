@@ -147,77 +147,6 @@ export default function UserDashboard() {
   
   const router = useRouter();
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        if (user.email?.toLowerCase() === 'polyglAITool@gmail.com'.toLowerCase()) {
-          router.push('/admin/login');
-          return;
-        }
-        loadUserData(user.uid);
-      } else {
-        router.push('/login');
-      }
-    });
-    return () => unsubscribe();
-  }, [router, loadUserData]);
-
-  // Load available TTS voices (some browsers populate asynchronously)
-  useEffect(() => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    const synth = window.speechSynthesis;
-
-    const loadVoices = () => {
-      const voices = synth.getVoices();
-      if (voices && voices.length > 0) {
-        setAvailableVoices(voices);
-      }
-    };
-
-    loadVoices();
-    synth.onvoiceschanged = loadVoices;
-    return () => {
-      synth.onvoiceschanged = null;
-    };
-  }, []);
-
-  // Setup Level Up languages based on user's preferred language
-  const setupLevelUpLanguages = useCallback(() => {
-    const userPrefLanguage = preferredLanguage.toLowerCase();
-    const featured = levelUpLanguages.find(lang => lang.code === userPrefLanguage) || levelUpLanguages[0];
-    const others = levelUpLanguages.filter(lang => lang.code !== userPrefLanguage);
-    
-    setFeaturedLanguage(featured ? { id: featured.code, name: featured.name, flag: featured.flag } : null);
-    setOtherLanguages(others.map(lang => ({ id: lang.code, name: lang.name, flag: lang.flag })));
-  }, [preferredLanguage, levelUpLanguages]);
-
-  // Setup Level Up languages when preferred language changes
-  useEffect(() => {
-    setupLevelUpLanguages();
-  }, [preferredLanguage, setupLevelUpLanguages]);
-
-  // Close dropdowns when clicking outside
-  useEffect(() => {
-    const handleClickOutside = () => {
-      setShowSourceLangSelector(false);
-      setShowTargetLangSelector(false);
-    };
-
-    if (showSourceLangSelector || showTargetLangSelector) {
-      document.addEventListener('click', handleClickOutside);
-      return () => document.removeEventListener('click', handleClickOutside);
-    }
-  }, [showSourceLangSelector, showTargetLangSelector]);
-
-  // Cleanup speech recognition on unmount
-  useEffect(() => {
-    return () => {
-      if (speechRecognition) {
-        speechRecognition.stop();
-      }
-    };
-  }, [speechRecognition]);
-
   const loadUserData = useCallback(async (userId: string) => {
     try {
       setLoading(true);
@@ -357,6 +286,79 @@ export default function UserDashboard() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        if (user.email?.toLowerCase() === 'polyglAITool@gmail.com'.toLowerCase()) {
+          router.push('/admin/login');
+          return;
+        }
+        loadUserData(user.uid);
+      } else {
+        router.push('/login');
+      }
+    });
+    return () => unsubscribe();
+  }, [router, loadUserData]);
+
+  // Load available TTS voices (some browsers populate asynchronously)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const synth = window.speechSynthesis;
+
+    const loadVoices = () => {
+      const voices = synth.getVoices();
+      if (voices && voices.length > 0) {
+        setAvailableVoices(voices);
+      }
+    };
+
+    loadVoices();
+    synth.onvoiceschanged = loadVoices;
+    return () => {
+      synth.onvoiceschanged = null;
+    };
+  }, []);
+
+  // Setup Level Up languages based on user's preferred language
+  const setupLevelUpLanguages = useCallback(() => {
+    const userPrefLanguage = preferredLanguage.toLowerCase();
+    const featured = levelUpLanguages.find(lang => lang.code === userPrefLanguage) || levelUpLanguages[0];
+    const others = levelUpLanguages.filter(lang => lang.code !== userPrefLanguage);
+    
+    setFeaturedLanguage(featured ? { id: featured.code, name: featured.name, flag: featured.flag } : null);
+    setOtherLanguages(others.map(lang => ({ id: lang.code, name: lang.name, flag: lang.flag })));
+  }, [preferredLanguage, levelUpLanguages]);
+
+  // Setup Level Up languages when preferred language changes
+  useEffect(() => {
+    setupLevelUpLanguages();
+  }, [preferredLanguage, setupLevelUpLanguages]);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setShowSourceLangSelector(false);
+      setShowTargetLangSelector(false);
+    };
+
+    if (showSourceLangSelector || showTargetLangSelector) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [showSourceLangSelector, showTargetLangSelector]);
+
+  // Cleanup speech recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (speechRecognition) {
+        speechRecognition.stop();
+      }
+    };
+  }, [speechRecognition]);
+
+  
 
   const getLanguageDisplayName = (languageCode: string) => {
     const languageNames: { [key: string]: string } = {
