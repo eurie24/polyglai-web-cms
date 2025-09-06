@@ -269,7 +269,6 @@ export default function UserDashboard() {
       // Get assessment counts from assessmentsByLevel structure (matching Flutter version)
       let beginnerCount = 0;
       let intermediateCount = 0;
-      let advancedCount = 0;
       let assessmentPoints = 0;
 
       try {
@@ -299,20 +298,7 @@ export default function UserDashboard() {
           }
         });
 
-        // Get advanced assessments (only for English)
-        if (prefLang.toLowerCase() === 'english') {
-          const advancedAssessments = await getDocs(
-            collection(db, 'users', userId, 'languages', prefLang.toLowerCase(), 'assessmentsByLevel', 'advanced', 'assessments')
-          );
-          advancedAssessments.docs.forEach(doc => {
-            const data = doc.data();
-            const score = parseInt(data.score) || 0;
-            if (score > 0) {
-              advancedCount++;
-              assessmentPoints += score;
-            }
-          });
-        }
+        // Advanced assessments are not currently surfaced in this UI; skip counting to avoid unused vars
       } catch (e) {
         console.error('Error fetching assessments:', e);
         // Fallback to old structure if assessmentsByLevel doesn't exist
@@ -325,7 +311,6 @@ export default function UserDashboard() {
             const data = doc.data();
             if (data.level === 'beginner') beginnerCount++;
             if (data.level === 'intermediate') intermediateCount++;
-            if (data.level === 'advanced') advancedCount++;
             if (data.score) {
               assessmentPoints += parseInt(data.score) || 0;
             }
@@ -338,7 +323,6 @@ export default function UserDashboard() {
       // Get character counts for progress calculation
       let beginnerTotal = 10;
       let intermediateTotal = 10;
-      let advancedTotal = 10;
 
       try {
         // Count documents in beginner subcollection
@@ -349,11 +333,7 @@ export default function UserDashboard() {
         const intermediateChars = await getDocs(collection(db, 'languages', prefLang.toLowerCase(), 'characters', 'intermediate', 'items'));
         intermediateTotal = intermediateChars.docs.length;
 
-        // Count documents in advanced subcollection (only for English)
-        if (prefLang.toLowerCase() === 'english') {
-          const advancedChars = await getDocs(collection(db, 'languages', prefLang.toLowerCase(), 'characters', 'advanced', 'items'));
-          advancedTotal = advancedChars.docs.length;
-        }
+        // Advanced totals not used in current UI; skipping fetch
       } catch (e) {
         console.error('Error fetching character counts:', e);
       }
