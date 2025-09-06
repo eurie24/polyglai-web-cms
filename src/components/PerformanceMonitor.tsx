@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from 'react';
 
+declare global {
+  interface Performance {
+    memory?: {
+      usedJSHeapSize: number;
+    };
+  }
+}
+
 interface PerformanceMetrics {
   loadTime: number;
   memoryUsage: number;
@@ -22,8 +30,8 @@ const PerformanceMonitor: React.FC = () => {
     setMetrics(prev => ({ ...prev, loadTime }));
 
     // Monitor memory usage (if available)
-    if ('memory' in performance) {
-      const memory = (performance as any).memory;
+    if (performance && performance.memory) {
+      const memory = performance.memory;
       setMetrics(prev => ({
         ...prev,
         memoryUsage: Math.round(memory.usedJSHeapSize / 1024 / 1024)

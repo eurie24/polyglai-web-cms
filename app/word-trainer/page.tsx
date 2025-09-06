@@ -21,7 +21,6 @@ export default function WordTrainerPage() {
   const [isCorrect, setIsCorrect] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [quizCompleted, setQuizCompleted] = useState(false);
-  const [isFinishing, setIsFinishing] = useState(false);
   const [userAnswers, setUserAnswers] = useState<Map<number, string>>(new Map());
 
   useEffect(() => {
@@ -34,7 +33,7 @@ export default function WordTrainerPage() {
     });
 
     return () => unsubscribe();
-  }, [router]);
+  }, [router, loadQuestions]);
 
   const loadQuestions = async () => {
     setIsLoading(true);
@@ -80,8 +79,6 @@ export default function WordTrainerPage() {
   };
 
   const finishQuiz = async () => {
-    setIsFinishing(true);
-
     try {
       // Calculate points based on correct answers
       const totalQuestions = questions.length;
@@ -101,8 +98,6 @@ export default function WordTrainerPage() {
     } catch (error) {
       console.error('Error finishing quiz:', error);
       alert('An error occurred. Please try again.');
-    } finally {
-      setIsFinishing(false);
     }
   };
 

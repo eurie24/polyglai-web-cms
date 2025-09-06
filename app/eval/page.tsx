@@ -579,8 +579,16 @@ function EvalPageContent() {
   const [highScores, setHighScores] = useState<HighScore | null>(null);
   const [loadingHighScores, setLoadingHighScores] = useState(false);
   const [showDetailedFeedback, setShowDetailedFeedback] = useState(false);
-  const [detailedFeedbackData, setDetailedFeedbackData] = useState<any>(null);
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  interface DetailedFeedbackData {
+    targetText: string;
+    level: Level;
+    language: string;
+    overallScore: number;
+    apiResponse: unknown;
+    isHighScore: boolean;
+  }
+  const [detailedFeedbackData, setDetailedFeedbackData] = useState<DetailedFeedbackData | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ uid: string } | null>(null);
 
   const [sfxVolume] = useState<number>(1.0);
   const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null);
@@ -1432,7 +1440,7 @@ function EvalPageContent() {
                     <div className="text-6xl mb-4">📊</div>
                     <h3 className="text-xl font-semibold text-gray-900 mb-2">No High Score Yet</h3>
                     <p className="text-gray-600 mb-4">
-                      Complete an assessment for "{targetText}" to see your high score here!
+                      Complete an assessment for '{targetText}' to see your high score here!
                     </p>
                   </div>
                 )}

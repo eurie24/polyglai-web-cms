@@ -1,11 +1,38 @@
 import React from 'react';
 
+interface PhonemeEntry {
+  phone?: string;
+  phoneme?: string;
+  pronunciation?: number;
+  tone?: number;
+}
+
+interface WordEntry {
+  phonemes?: PhonemeEntry[];
+  word?: string;
+  scores?: { overall?: number };
+}
+
+interface AssessmentApiResult {
+  words?: WordEntry[];
+  pronunciation?: number;
+  fluency?: number;
+  integrity?: number;
+  prosody?: number;
+  rhythm?: number;
+  rear_tone?: string;
+}
+
+interface AssessmentApiResponse {
+  result?: AssessmentApiResult;
+}
+
 interface AssessmentFeedbackProps {
   targetText: string;
   level: string;
   language: string;
   overallScore: number;
-  apiResponse: any;
+  apiResponse: AssessmentApiResponse;
   isHighScore: boolean;
   onClose: () => void;
 }
@@ -42,7 +69,7 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
       
       if (level === 'beginner' && words[0]?.phonemes) {
         // For beginner level, get phonemes from first word
-        words[0].phonemes.forEach((phoneme: any) => {
+        words[0].phonemes.forEach((phoneme: PhonemeEntry) => {
           phonemes.push({
             phoneme: phoneme.phone || phoneme.phoneme || '',
             pronunciation: phoneme.pronunciation || 0,
@@ -52,9 +79,9 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
         });
       } else if (level === 'intermediate') {
         // For intermediate level, process all words
-        words.forEach((word: any) => {
+        words.forEach((word: WordEntry) => {
           if (word.phonemes) {
-            word.phonemes.forEach((phoneme: any) => {
+            word.phonemes.forEach((phoneme: PhonemeEntry) => {
               phonemes.push({
                 phoneme: phoneme.phone || phoneme.phoneme || word.word || '',
                 pronunciation: phoneme.pronunciation || word.scores?.overall || 85,

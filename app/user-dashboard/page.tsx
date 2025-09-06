@@ -9,8 +9,6 @@ import { collection, getDocs, doc, getDoc, updateDoc, setDoc } from 'firebase/fi
 import { auth, db } from '../../src/lib/firebase';
 import { azureSpeechService } from '../services/azure-speech-service';
 import { MicrosoftTranslatorService } from '../services/microsoft-translator-service';
-import { useUserData } from '../../src/hooks/useUserData';
-import UserStatsCard from '../../src/components/UserStatsCard';
 import PerformanceMonitor from '../../src/components/PerformanceMonitor';
 
 // Extend Window interface for Speech Recognition (keeping for compatibility)
