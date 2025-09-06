@@ -1,4 +1,4 @@
-import { doc, getDoc, collection, query, getDocs, where, Query, CollectionReference, DocumentData, QuerySnapshot, QueryDocumentSnapshot } from 'firebase/firestore';
+import { doc, getDoc, collection, query, getDocs, where, Query, CollectionReference, DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import { db } from '../../src/lib/firebase';
 
 export interface UserScore {
@@ -46,7 +46,7 @@ export class UserService {
       let docs: QueryDocumentSnapshot<DocumentData>[] = [];
       try {
         const q1 = query(assessmentsRef, where('character', '==', targetText)) as Query<DocumentData>;
-        let s1 = await getDocs(q1);
+        const s1 = await getDocs(q1);
         if (!s1.empty) {
           docs = s1.docs;
         }
@@ -154,19 +154,19 @@ export class UserService {
           const snapshot = await getDocs(basicQuery);
 
           snapshot.forEach((d) => {
-            const data = d.data() as Record<string, any>;
+            const data = d.data() as Record<string, unknown>;
             const score: UserScore = {
               id: d.id,
-              score: data.score || 0,
-              targetText: data.character || data.targetText || d.id.split('_')[0] || '',
-              transcript: data.transcript || '',
+              score: typeof data.score === 'number' ? data.score : 0,
+              targetText: (typeof data.character === 'string' ? data.character : (typeof data.targetText === 'string' ? data.targetText : d.id.split('_')[0] || '')),
+              transcript: (typeof data.transcript === 'string' ? data.transcript : ''),
               level: level,
-              language: data.language || languageId,
-              timestamp: data.updatedAt || data.timestamp,
-              overallScore: data.score || 0,
-              pronunciationScore: data.pronunciationScore || 0,
-              fluencyScore: data.fluencyScore || 0,
-              accuracyScore: data.accuracyScore || 0,
+              language: (typeof data.language === 'string' ? data.language : languageId),
+              timestamp: (data as Record<string, unknown>).updatedAt ?? (data as Record<string, unknown>).timestamp,
+              overallScore: typeof data.score === 'number' ? data.score : 0,
+              pronunciationScore: typeof (data as Record<string, unknown>).pronunciationScore === 'number' ? (data as Record<string, unknown>).pronunciationScore as number : 0,
+              fluencyScore: typeof (data as Record<string, unknown>).fluencyScore === 'number' ? (data as Record<string, unknown>).fluencyScore as number : 0,
+              accuracyScore: typeof (data as Record<string, unknown>).accuracyScore === 'number' ? (data as Record<string, unknown>).accuracyScore as number : 0,
             };
             scores.push(score);
             // update aggregates
@@ -184,19 +184,19 @@ export class UserService {
           const fallbackRef = collection(db, 'users', userId, 'languages', languageId.toLowerCase(), 'assessmentsData') as CollectionReference<DocumentData>;
           const fallbackSnapshot = await getDocs(query(fallbackRef) as Query<DocumentData>);
           fallbackSnapshot.forEach((d) => {
-            const data = d.data() as Record<string, any>;
+            const data = d.data() as Record<string, unknown>;
             const score: UserScore = {
               id: d.id,
-              score: data.score || 0,
-              targetText: data.character || data.targetText || d.id.split('_')[0] || '',
-              transcript: data.transcript || '',
-              level: data.level || 'beginner',
-              language: data.language || languageId,
-              timestamp: data.updatedAt || data.timestamp,
-              overallScore: data.score || 0,
-              pronunciationScore: data.pronunciationScore || 0,
-              fluencyScore: data.fluencyScore || 0,
-              accuracyScore: data.accuracyScore || 0,
+              score: typeof data.score === 'number' ? data.score : 0,
+              targetText: (typeof data.character === 'string' ? data.character : (typeof data.targetText === 'string' ? data.targetText : d.id.split('_')[0] || '')),
+              transcript: (typeof data.transcript === 'string' ? data.transcript : ''),
+              level: (typeof data.level === 'string' ? data.level : 'beginner'),
+              language: (typeof data.language === 'string' ? data.language : languageId),
+              timestamp: (data as Record<string, unknown>).updatedAt ?? (data as Record<string, unknown>).timestamp,
+              overallScore: typeof data.score === 'number' ? data.score : 0,
+              pronunciationScore: typeof (data as Record<string, unknown>).pronunciationScore === 'number' ? (data as Record<string, unknown>).pronunciationScore as number : 0,
+              fluencyScore: typeof (data as Record<string, unknown>).fluencyScore === 'number' ? (data as Record<string, unknown>).fluencyScore as number : 0,
+              accuracyScore: typeof (data as Record<string, unknown>).accuracyScore === 'number' ? (data as Record<string, unknown>).accuracyScore as number : 0,
             };
             scores.push(score);
             const lvl = (score.level.toLowerCase() as 'beginner' | 'intermediate' | 'advanced');

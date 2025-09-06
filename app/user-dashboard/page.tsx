@@ -37,10 +37,8 @@ export default function UserDashboard() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [beginnerAssessmentCount, setBeginnerAssessmentCount] = useState(0);
   const [intermediateAssessmentCount, setIntermediateAssessmentCount] = useState(0);
-  const [advancedAssessmentCount, setAdvancedAssessmentCount] = useState(0);
   const [beginnerTotalItems, setBeginnerTotalItems] = useState(10);
   const [intermediateTotalItems, setIntermediateTotalItems] = useState(10);
-  const [advancedTotalItems, setAdvancedTotalItems] = useState(10);
   const [activeSection, setActiveSection] = useState('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   
@@ -370,10 +368,8 @@ export default function UserDashboard() {
       }
       setBeginnerAssessmentCount(beginnerCount);
       setIntermediateAssessmentCount(intermediateCount);
-      setAdvancedAssessmentCount(advancedCount);
       setBeginnerTotalItems(beginnerTotal);
       setIntermediateTotalItems(intermediateTotal);
-      setAdvancedTotalItems(advancedTotal);
 
     } catch (error) {
       console.error('Error loading user data:', error);
