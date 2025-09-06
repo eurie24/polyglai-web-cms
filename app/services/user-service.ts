@@ -1,4 +1,4 @@
-import { doc, getDoc, collection, query, getDocs, where } from 'firebase/firestore';
+import { doc, getDoc, collection, query, getDocs, where, Query, CollectionReference, DocumentData, QuerySnapshot, QueryDocumentSnapshot } from 'firebase/firestore';
 import { db } from '../../src/lib/firebase';
 
 export interface UserScore {
@@ -41,53 +41,53 @@ export class UserService {
         'assessmentsByLevel',
         level.toLowerCase(),
         'assessments'
-      );
+      ) as CollectionReference<DocumentData>;
 
-      let snapshot: { empty: boolean; size: number; forEach: (cb: (d: any) => void) => void } | any;
+      let snapshot: QuerySnapshot<DocumentData> | { empty: boolean; size: number; forEach: (cb: (d: QueryDocumentSnapshot<DocumentData>) => void) => void };
       try {
-        const q1 = query(assessmentsRef, where('character', '==', targetText));
+        const q1 = query(assessmentsRef, where('character', '==', targetText)) as Query<DocumentData>;
         snapshot = await getDocs(q1);
         if (snapshot.empty) {
-          const q2 = query(assessmentsRef, where('targetText', '==', targetText));
+          const q2 = query(assessmentsRef, where('targetText', '==', targetText)) as Query<DocumentData>;
           snapshot = await getDocs(q2);
         }
         if (snapshot.empty) {
-          const q3 = query(assessmentsRef, where('refText', '==', targetText));
+          const q3 = query(assessmentsRef, where('refText', '==', targetText)) as Query<DocumentData>;
           snapshot = await getDocs(q3);
         }
         if (snapshot.empty) {
-          const q4 = query(assessmentsRef);
+          const q4 = query(assessmentsRef) as Query<DocumentData>;
           const allDocs = await getDocs(q4);
-          const filteredDocs = allDocs.docs.filter(doc => {
-            const data = doc.data() as Record<string, unknown>;
+          const filteredDocs = allDocs.docs.filter(d => {
+            const data = d.data() as Record<string, unknown>;
             return data.character === targetText ||
                    data.targetText === targetText ||
                    data.refText === targetText ||
                    (data.sentence as any)?.target === targetText ||
-                   doc.id.includes(targetText);
+                   d.id.includes(targetText);
           });
           snapshot = {
             empty: filteredDocs.length === 0,
             size: filteredDocs.length,
-            forEach: (callback: (doc: any) => void) => filteredDocs.forEach(callback)
+            forEach: (callback: (d: QueryDocumentSnapshot<DocumentData>) => void) => filteredDocs.forEach(callback as any)
           };
         }
       } catch (queryError) {
         console.error('Error with specific field queries, trying fallback:', queryError);
-        const qFallback = query(assessmentsRef);
+        const qFallback = query(assessmentsRef) as Query<DocumentData>;
         const allDocs = await getDocs(qFallback);
-        const filteredDocs = allDocs.docs.filter(doc => {
-          const data = doc.data() as Record<string, unknown>;
+        const filteredDocs = allDocs.docs.filter(d => {
+          const data = d.data() as Record<string, unknown>;
           return data.character === targetText ||
                  data.targetText === targetText ||
                  data.refText === targetText ||
                  (data.sentence as any)?.target === targetText ||
-                 doc.id.includes(targetText);
+                 d.id.includes(targetText);
         });
         snapshot = {
           empty: filteredDocs.length === 0,
           size: filteredDocs.length,
-          forEach: (callback: (doc: any) => void) => filteredDocs.forEach(callback)
+          forEach: (callback: (d: QueryDocumentSnapshot<DocumentData>) => void) => filteredDocs.forEach(callback as any)
         };
       }
 
@@ -96,13 +96,13 @@ export class UserService {
       let highestScore: UserScore | null = null;
       let maxScore = 0;
 
-      snapshot.forEach((doc: any) => {
-        const data = doc.data() as Record<string, any>;
+      snapshot.forEach((d: any) => {
+        const data = (d.data ? d.data() : d) as Record<string, any>;
         const score = data.score || 0;
         if (score > maxScore) {
           maxScore = score;
           highestScore = {
-            id: doc.id,
+            id: (d.id || '') as string,
             score: score,
             targetText: data.character || data.targetText || targetText,
             transcript: data.transcript || '',
@@ -128,8 +128,8 @@ export class UserService {
   static async getUserHighScores(userId: string, languageId: string): Promise<HighScore | null> {
     console.log('UserService.getUserHighScores called with:', { userId, languageId });
     try {
-      const userLangRef = doc(db, 'users', userId, 'languages', languageId.toLowerCase());
-      const userLangDoc = await getDoc(userLangRef);
+      // no need to store the doc value here; this also avoids unused variable lint
+      await getDoc(doc(db, 'users', userId, 'languages', languageId.toLowerCase()));
 
       const scores: UserScore[] = [];
       const levelBreakdown = {
@@ -150,16 +150,16 @@ export class UserService {
             'assessmentsByLevel',
             level,
             'assessments'
-          );
-          const basicQuery = query(assessmentsRef);
+          ) as CollectionReference<DocumentData>;
+          const basicQuery = query(assessmentsRef) as Query<DocumentData>;
           const snapshot = await getDocs(basicQuery);
 
-          snapshot.forEach((doc: any) => {
-            const data = doc.data() as Record<string, any>;
+          snapshot.forEach((d) => {
+            const data = d.data() as Record<string, any>;
             const score: UserScore = {
-              id: doc.id,
+              id: d.id,
               score: data.score || 0,
-              targetText: data.character || data.targetText || doc.id.split('_')[0] || '',
+              targetText: data.character || data.targetText || d.id.split('_')[0] || '',
               transcript: data.transcript || '',
               level: level,
               language: data.language || languageId,
@@ -182,14 +182,14 @@ export class UserService {
 
       if (scores.length === 0) {
         try {
-          const fallbackRef = collection(db, 'users', userId, 'languages', languageId.toLowerCase(), 'assessmentsData');
-          const fallbackSnapshot = await getDocs(query(fallbackRef));
-          fallbackSnapshot.forEach((doc: any) => {
-            const data = doc.data() as Record<string, any>;
+          const fallbackRef = collection(db, 'users', userId, 'languages', languageId.toLowerCase(), 'assessmentsData') as CollectionReference<DocumentData>;
+          const fallbackSnapshot = await getDocs(query(fallbackRef) as Query<DocumentData>);
+          fallbackSnapshot.forEach((d) => {
+            const data = d.data() as Record<string, any>;
             const score: UserScore = {
-              id: doc.id,
+              id: d.id,
               score: data.score || 0,
-              targetText: data.character || data.targetText || doc.id.split('_')[0] || '',
+              targetText: data.character || data.targetText || d.id.split('_')[0] || '',
               transcript: data.transcript || '',
               level: data.level || 'beginner',
               language: data.language || languageId,
@@ -272,7 +272,7 @@ export class UserService {
         'assessmentsByLevel',
         level,
         'assessments'
-      );
+      ) as CollectionReference<DocumentData>;
 
       await addDoc(assessmentsRef, {
         score: scoreData.overallScore || scoreData.score,

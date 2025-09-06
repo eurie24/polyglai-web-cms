@@ -838,7 +838,7 @@ function EvalPageContent() {
     setShowDetails(false);
   };
 
-  const loadHighScoreForCurrentText = async () => {
+  const loadHighScoreForCurrentText = useCallback(async () => {
     console.log('loadHighScoreForCurrentText called');
     console.log('currentUser:', currentUser);
     console.log('targetText:', targetText);
@@ -899,7 +899,7 @@ function EvalPageContent() {
     } finally {
       setLoadingHighScores(false);
     }
-  };
+  }, [currentUser, targetText, level, language]);
 
   // Authentication effect
   useEffect(() => {
@@ -922,7 +922,7 @@ function EvalPageContent() {
     if (showHighScores && currentUser && targetText) {
       loadHighScoreForCurrentText();
     }
-  }, [showHighScores, currentUser, targetText]);
+  }, [showHighScores, currentUser, targetText, loadHighScoreForCurrentText]);
 
 
 
@@ -1440,7 +1440,7 @@ function EvalPageContent() {
                     <div className="text-6xl mb-4">📊</div>
                     <h3 className="text-xl font-semibold text-gray-900 mb-2">No High Score Yet</h3>
                     <p className="text-gray-600 mb-4">
-                      Complete an assessment for '{targetText}' to see your high score here!
+                      Complete an assessment for &apos;{targetText}&apos; to see your high score here!
                     </p>
                   </div>
                 )}

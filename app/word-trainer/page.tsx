@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../../src/lib/firebase';
@@ -23,6 +23,18 @@ export default function WordTrainerPage() {
   const [quizCompleted, setQuizCompleted] = useState(false);
   const [userAnswers, setUserAnswers] = useState<Map<number, string>>(new Map());
 
+  const loadQuestions = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const questionsData = await WordTrainerService.getQuestions(languageId, level, 10);
+      setQuestions(questionsData);
+    } catch (error) {
+      console.error('Error loading questions:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [languageId, level]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (!user) {
@@ -34,18 +46,6 @@ export default function WordTrainerPage() {
 
     return () => unsubscribe();
   }, [router, loadQuestions]);
-
-  const loadQuestions = async () => {
-    setIsLoading(true);
-    try {
-      const questionsData = await WordTrainerService.getQuestions(languageId, level, 10);
-      setQuestions(questionsData);
-    } catch (error) {
-      console.error('Error loading questions:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const checkAnswer = (answer: string) => {
     if (showAnswer) return; // Prevent multiple answers

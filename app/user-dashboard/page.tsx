@@ -153,20 +153,17 @@ export default function UserDashboard() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        // Check if user is admin - redirect to admin login
         if (user.email?.toLowerCase() === 'polyglAITool@gmail.com'.toLowerCase()) {
           router.push('/admin/login');
           return;
         }
-        
         loadUserData(user.uid);
       } else {
         router.push('/login');
       }
     });
-
     return () => unsubscribe();
-  }, [router]);
+  }, [router, loadUserData]);
 
   // Load available TTS voices (some browsers populate asynchronously)
   useEffect(() => {
@@ -224,7 +221,7 @@ export default function UserDashboard() {
     };
   }, [speechRecognition]);
 
-  const loadUserData = async (userId: string) => {
+  const loadUserData = useCallback(async (userId: string) => {
     try {
       setLoading(true);
 
@@ -384,7 +381,7 @@ export default function UserDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const getLanguageDisplayName = (languageCode: string) => {
     const languageNames: { [key: string]: string } = {
