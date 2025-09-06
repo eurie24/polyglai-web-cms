@@ -43,77 +43,76 @@ export class UserService {
         'assessments'
       ) as CollectionReference<DocumentData>;
 
-      let snapshot: QuerySnapshot<DocumentData> | { empty: boolean; size: number; forEach: (cb: (d: QueryDocumentSnapshot<DocumentData>) => void) => void };
+      let docs: QueryDocumentSnapshot<DocumentData>[] = [];
       try {
         const q1 = query(assessmentsRef, where('character', '==', targetText)) as Query<DocumentData>;
-        snapshot = await getDocs(q1);
-        if (snapshot.empty) {
+        let s1 = await getDocs(q1);
+        if (!s1.empty) {
+          docs = s1.docs;
+        }
+        if (docs.length === 0) {
           const q2 = query(assessmentsRef, where('targetText', '==', targetText)) as Query<DocumentData>;
-          snapshot = await getDocs(q2);
+          const s2 = await getDocs(q2);
+          if (!s2.empty) docs = s2.docs;
         }
-        if (snapshot.empty) {
+        if (docs.length === 0) {
           const q3 = query(assessmentsRef, where('refText', '==', targetText)) as Query<DocumentData>;
-          snapshot = await getDocs(q3);
+          const s3 = await getDocs(q3);
+          if (!s3.empty) docs = s3.docs;
         }
-        if (snapshot.empty) {
+        if (docs.length === 0) {
           const q4 = query(assessmentsRef) as Query<DocumentData>;
           const allDocs = await getDocs(q4);
-          const filteredDocs = allDocs.docs.filter(d => {
+          docs = allDocs.docs.filter(d => {
             const data = d.data() as Record<string, unknown>;
+            const sentence = data.sentence as Record<string, unknown> | undefined;
+            const sentenceTarget = typeof sentence?.target === 'string' ? sentence.target : undefined;
             return data.character === targetText ||
                    data.targetText === targetText ||
                    data.refText === targetText ||
-                   (data.sentence as any)?.target === targetText ||
+                   sentenceTarget === targetText ||
                    d.id.includes(targetText);
           });
-          snapshot = {
-            empty: filteredDocs.length === 0,
-            size: filteredDocs.length,
-            forEach: (callback: (d: QueryDocumentSnapshot<DocumentData>) => void) => filteredDocs.forEach(callback as any)
-          };
         }
       } catch (queryError) {
         console.error('Error with specific field queries, trying fallback:', queryError);
         const qFallback = query(assessmentsRef) as Query<DocumentData>;
         const allDocs = await getDocs(qFallback);
-        const filteredDocs = allDocs.docs.filter(d => {
+        docs = allDocs.docs.filter(d => {
           const data = d.data() as Record<string, unknown>;
+          const sentence = data.sentence as Record<string, unknown> | undefined;
+          const sentenceTarget = typeof sentence?.target === 'string' ? sentence.target : undefined;
           return data.character === targetText ||
                  data.targetText === targetText ||
                  data.refText === targetText ||
-                 (data.sentence as any)?.target === targetText ||
+                 sentenceTarget === targetText ||
                  d.id.includes(targetText);
         });
-        snapshot = {
-          empty: filteredDocs.length === 0,
-          size: filteredDocs.length,
-          forEach: (callback: (d: QueryDocumentSnapshot<DocumentData>) => void) => filteredDocs.forEach(callback as any)
-        };
       }
 
-      if (snapshot.empty) return null;
+      if (docs.length === 0) return null;
 
       let highestScore: UserScore | null = null;
       let maxScore = 0;
 
-      snapshot.forEach((d: any) => {
-        const data = (d.data ? d.data() : d) as Record<string, any>;
-        const score = data.score || 0;
+      docs.forEach((d) => {
+        const data = d.data() as Record<string, unknown>;
+        const score = typeof data.score === 'number' ? data.score : 0;
         if (score > maxScore) {
           maxScore = score;
           highestScore = {
-            id: (d.id || '') as string,
+            id: d.id,
             score: score,
-            targetText: data.character || data.targetText || targetText,
-            transcript: data.transcript || '',
+            targetText: (typeof data.character === 'string' ? data.character : (typeof data.targetText === 'string' ? data.targetText : targetText)) as string,
+            transcript: (typeof data.transcript === 'string' ? data.transcript : ''),
             level: level,
-            language: data.language || languageId,
-            timestamp: data.updatedAt || data.timestamp,
+            language: (typeof data.language === 'string' ? data.language : languageId),
+            timestamp: (data as Record<string, unknown>).updatedAt ?? (data as Record<string, unknown>).timestamp,
             overallScore: score,
-            pronunciationScore: data.pronunciationScore || 0,
-            fluencyScore: data.fluencyScore || 0,
-            accuracyScore: data.accuracyScore || 0,
-            apiResponse: (data.apiResponse as Record<string, unknown>) || {},
+            pronunciationScore: typeof (data as Record<string, unknown>).pronunciationScore === 'number' ? (data as Record<string, unknown>).pronunciationScore as number : 0,
+            fluencyScore: typeof (data as Record<string, unknown>).fluencyScore === 'number' ? (data as Record<string, unknown>).fluencyScore as number : 0,
+            accuracyScore: typeof (data as Record<string, unknown>).accuracyScore === 'number' ? (data as Record<string, unknown>).accuracyScore as number : 0,
+            apiResponse: (typeof (data as Record<string, unknown>).apiResponse === 'object' && (data as Record<string, unknown>).apiResponse !== null ? (data as Record<string, unknown>).apiResponse as Record<string, unknown> : {}),
           };
         }
       });

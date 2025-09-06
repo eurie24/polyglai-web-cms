@@ -59,7 +59,7 @@ export class WordTrainerService {
   static async saveResult(
     languageId: string,
     points: number,
-    _isCorrect: boolean = true
+    // result correctness not used yet; points capture outcome
   ): Promise<boolean> {
     try {
       // Get current user

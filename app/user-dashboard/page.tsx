@@ -64,7 +64,6 @@ export default function UserDashboard() {
   const [featuredLanguage, setFeaturedLanguage] = useState<{ id: string; name: string; flag: string } | null>(null);
   const [otherLanguages, setOtherLanguages] = useState<{ id: string; name: string; flag: string }[]>([]);
   const [selectedLanguage, setSelectedLanguage] = useState<{ id: string; name: string; flag: string } | null>(null);
-  const [activeProfileTab, setActiveProfileTab] = useState('achievements');
   
   // Edit profile state
   const [showEditProfile, setShowEditProfile] = useState(false);
@@ -1439,7 +1438,7 @@ export default function UserDashboard() {
             <div className="mb-8">
               <h2 className={`font-bold text-gray-900 mb-6 ${
                 isSidebarCollapsed ? 'text-xl lg:text-2xl' : 'text-2xl'
-              }`}>What's New</h2>
+              }`}>What&apos;s New</h2>
               
               <div className="bg-gradient-to-br from-[#29B6F6] to-[#0277BD] rounded-xl p-6 text-white">
                 <div className={`flex items-center mb-4 ${
