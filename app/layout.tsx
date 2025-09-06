@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Orbitron } from "next/font/google";
 import "./globals.css";
 import ThemeProvider from "./theme-provider";
 
@@ -11,6 +11,12 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+const orbitron = Orbitron({
+  variable: "--font-orbitron",
+  subsets: ["latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -30,7 +36,7 @@ export default function RootLayout({
         <meta name="google-signin-client_id" content="384494047717-mbt8equ74qv39lgi6m5p9j1iffer0r1m.apps.googleusercontent.com" />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased light bg-gray-50`}
+        className={`${geistSans.variable} ${geistMono.variable} ${orbitron.variable} antialiased light bg-gray-50`}
       >
         <ThemeProvider>{children}</ThemeProvider>
       </body>

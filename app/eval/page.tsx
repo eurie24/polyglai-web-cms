@@ -1,11 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { azureSpeechService } from '../services/azure-speech-service';
-import { db } from '../../src/lib/firebase';
+import { UserService, HighScore } from '../services/user-service';
+import { auth, db } from '../../src/lib/firebase';
+import AssessmentFeedback from '../components/assessment-feedback';
 import { collection, getDocs } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 
 type Level = 'beginner' | 'intermediate' | 'advanced';
 
@@ -145,6 +148,10 @@ function getCommonPronunciationVariations(word: string): string[] {
     'buy': ['buy', 'by'],
     'sell': ['sell', 'sel'],
     'money': ['money', 'muni'],
+    'i\'m': ['i\'m', 'im', 'i am'],
+    'not': ['not', 'nawt', 'nat'],
+    'sure': ['sure', 'shur', 'shure'],
+    'i\'m not sure': ['i\'m not sure', 'im not sure', 'i am not sure', 'i\'m not shur', 'im not shur'],
     'time': ['time', 'tym'],
     'day': ['day', 'day'],
     'night': ['night', 'nyt'],
@@ -555,6 +562,7 @@ function generatePhonemeBreakdown(word: string, language: string, userTranscript
 
 function EvalPageContent() {
   const params = useSearchParams();
+  const router = useRouter();
   const [language] = useState<string>(params.get('language') || 'english');
   const [level] = useState<Level>((params.get('level') as Level) || 'beginner');
   const [targetText, setTargetText] = useState<string>(params.get('text') || '');
@@ -567,7 +575,12 @@ function EvalPageContent() {
   const [index, setIndex] = useState(0);
   const [showResult, setShowResult] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
-
+  const [showHighScores, setShowHighScores] = useState(false);
+  const [highScores, setHighScores] = useState<HighScore | null>(null);
+  const [loadingHighScores, setLoadingHighScores] = useState(false);
+  const [showDetailedFeedback, setShowDetailedFeedback] = useState(false);
+  const [detailedFeedbackData, setDetailedFeedbackData] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
   const [sfxVolume] = useState<number>(1.0);
   const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null);
@@ -684,10 +697,10 @@ function EvalPageContent() {
         } else {
           // fallback sample if empty
           setItems([]);
-          if (!params.get('text')) setTargetText('hello');
+          if (!params.get('text')) setTargetText('money');
         }
       } catch {
-        if (!params.get('text')) setTargetText('hello');
+        if (!params.get('text')) setTargetText('money');
       }
     };
     load();
@@ -817,15 +830,124 @@ function EvalPageContent() {
     setShowDetails(false);
   };
 
+  const loadHighScoreForCurrentText = async () => {
+    console.log('loadHighScoreForCurrentText called');
+    console.log('currentUser:', currentUser);
+    console.log('targetText:', targetText);
+    console.log('language:', language);
+    console.log('level:', level);
+    
+    if (!currentUser || !targetText) {
+      console.error('No authenticated user or target text found');
+      return;
+    }
+
+    // Map language to ensure we're using the correct Firestore language code
+    const mapLanguageToFirestoreCode = (lang: string) => {
+      const languageMap: { [key: string]: string } = {
+        'english': 'english',
+        'mandarin': 'mandarin',
+        'spanish': 'spanish',
+        'japanese': 'japanese',
+        'korean': 'korean',
+        'en': 'english',
+        'zh': 'mandarin',
+        'es': 'spanish',
+        'ja': 'japanese',
+        'ko': 'korean'
+      };
+      return languageMap[lang.toLowerCase()] || lang.toLowerCase();
+    };
+
+    const firestoreLanguageCode = mapLanguageToFirestoreCode(language);
+    console.log('Mapped language code for Firestore:', firestoreLanguageCode);
+
+    console.log('Loading high score for text:', targetText, 'user:', currentUser.uid, 'language:', firestoreLanguageCode);
+    setLoadingHighScores(true);
+    try {
+      const highScore = await UserService.getUserHighScoreForText(currentUser.uid, firestoreLanguageCode, targetText, level);
+      console.log('High score loaded:', highScore);
+      
+      if (highScore) {
+        // Convert single high score to the format expected by the modal
+        const highScoreData: HighScore = {
+          highestScore: highScore.overallScore || highScore.score,
+          totalAssessments: 1,
+          averageScore: highScore.overallScore || highScore.score,
+          recentScores: [highScore],
+          levelBreakdown: {
+            beginner: { count: level === 'beginner' ? 1 : 0, average: level === 'beginner' ? (highScore.overallScore || highScore.score) : 0, highest: level === 'beginner' ? (highScore.overallScore || highScore.score) : 0 },
+            intermediate: { count: level === 'intermediate' ? 1 : 0, average: level === 'intermediate' ? (highScore.overallScore || highScore.score) : 0, highest: level === 'intermediate' ? (highScore.overallScore || highScore.score) : 0 },
+            advanced: { count: level === 'advanced' ? 1 : 0, average: level === 'advanced' ? (highScore.overallScore || highScore.score) : 0, highest: level === 'advanced' ? (highScore.overallScore || highScore.score) : 0 }
+          }
+        };
+        setHighScores(highScoreData);
+      } else {
+        setHighScores(null);
+      }
+    } catch (error) {
+      console.error('Error loading high score:', error);
+      setHighScores(null);
+    } finally {
+      setLoadingHighScores(false);
+    }
+  };
+
+  // Authentication effect
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        console.log('User authenticated:', user.uid);
+        setCurrentUser(user);
+      } else {
+        console.log('No user authenticated, redirecting to login');
+        // Redirect to login if not authenticated
+        router.push('/login');
+      }
+    });
+
+    return () => unsubscribe();
+  }, [router]);
+
+  // Load high score for current text when modal is opened
+  useEffect(() => {
+    if (showHighScores && currentUser && targetText) {
+      loadHighScoreForCurrentText();
+    }
+  }, [showHighScores, currentUser, targetText]);
+
 
 
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-5xl mx-auto px-6 py-6">
-        {/* Language header */}
-        <div className="flex items-center space-x-3 mb-8">
-          <Image src={flagMap[language] || '/flags/Usa.svg'} alt={language} width={48} height={48} className="w-12 h-12 rounded-full object-contain" />
-          <div className="text-sm font-semibold tracking-wide text-gray-900">{language.toUpperCase()}</div>
+        {/* Header with back button and high score */}
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center space-x-3">
+            {/* Back button */}
+            <button
+              onClick={() => router.push('/user-dashboard')}
+              className="flex items-center justify-center w-10 h-10 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+            </button>
+            
+            <Image src={flagMap[language] || '/flags/Usa.svg'} alt={language} width={48} height={48} className="w-12 h-12 rounded-full object-contain" />
+            <div className="text-sm font-semibold tracking-wide text-gray-900">{language.toUpperCase()}</div>
+          </div>
+          
+          {/* High Score button */}
+          <button
+            onClick={() => setShowHighScores(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-[#29B6F6] hover:bg-[#0277BD] text-white rounded-lg transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+            </svg>
+            <span className="font-medium">High Score</span>
+          </button>
         </div>
 
 
@@ -848,6 +970,53 @@ function EvalPageContent() {
             <div className="mt-3 text-xl text-blue-600">{currentItem.phonetic}</div>
           )}
         </div>
+
+        {/* Navigation Buttons */}
+        {items.length > 1 && (
+          <div className="flex justify-center items-center space-x-4 mb-8">
+            <button
+              onClick={() => {
+                const prev = index > 0 ? index - 1 : items.length - 1;
+                setIndex(prev);
+                setTargetText(items[prev].value);
+                setTranscript('');
+                setScore(null);
+                setShowResult(false);
+                setShowDetails(false);
+              }}
+              disabled={items.length <= 1}
+              className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+              </svg>
+              <span className="font-medium">Previous</span>
+            </button>
+            
+            <div className="text-sm text-gray-500 px-4">
+              {index + 1} of {items.length}
+            </div>
+            
+            <button
+              onClick={() => {
+                const next = (index + 1) % items.length;
+                setIndex(next);
+                setTargetText(items[next].value);
+                setTranscript('');
+                setScore(null);
+                setShowResult(false);
+                setShowDetails(false);
+              }}
+              disabled={items.length <= 1}
+              className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="font-medium">Next</span>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        )}
 
         {/* Actions */}
         <div className="bg-[#F2F4FA] rounded-3xl p-10 mb-6 text-center">
@@ -1171,6 +1340,140 @@ function EvalPageContent() {
               <button onClick={onNext} className="px-4 py-2 bg-[#29B6F6] hover:bg-[#0277BD] text-white rounded-lg text-sm font-semibold">Next</button>
             </div>
           </div>
+        )}
+
+                {/* High Score Modal */}
+        {showHighScores && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6 border-b border-gray-200">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-bold text-gray-900">High Score Analysis</h2>
+                  <button
+                    onClick={() => setShowHighScores(false)}
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-6">
+                {loadingHighScores ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#29B6F6]"></div>
+                    <span className="ml-3 text-gray-600">Loading your high score...</span>
+                  </div>
+                ) : highScores && highScores.recentScores.length > 0 ? (
+                  <div className="space-y-6">
+                    {/* Target Text Display */}
+                    <div className="text-center">
+                      <div className="text-sm text-gray-600 mb-2">Target Text</div>
+                      <div className="text-2xl font-bold text-gray-900">{targetText}</div>
+                    </div>
+
+                    {/* High Score Display */}
+                    <div className="bg-gradient-to-r from-[#29B6F6] to-[#0277BD] text-white p-6 rounded-lg text-center">
+                      <div className="text-4xl font-bold mb-2">{Math.round(highScores.highestScore)}%</div>
+                      <div className="text-lg opacity-90">Your Best Score</div>
+                    </div>
+
+                    {/* Score Details */}
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">Score Details</h3>
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-700">Level:</span>
+                          <span className="font-semibold capitalize">{level}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-700">Language:</span>
+                          <span className="font-semibold capitalize">{language}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-700">Date:</span>
+                          <span className="font-semibold">
+                            {highScores.recentScores[0].timestamp ? 
+                              new Date(highScores.recentScores[0].timestamp?.toDate?.() || highScores.recentScores[0].timestamp).toLocaleDateString() : 
+                              'N/A'
+                            }
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* View Detailed Feedback Button */}
+                    <button
+                      onClick={() => {
+                        setShowHighScores(false);
+                        // Show detailed feedback with the high score data
+                        if (highScores && highScores.recentScores.length > 0) {
+                          const scoreData = highScores.recentScores[0];
+                          setDetailedFeedbackData({
+                            targetText: targetText,
+                            level: level,
+                            language: language,
+                            overallScore: scoreData.overallScore || scoreData.score,
+                            apiResponse: scoreData.apiResponse || {},
+                            isHighScore: false // This is historical data, not a new high score
+                          });
+                          setShowDetailedFeedback(true);
+                        }
+                      }}
+                      className="w-full bg-[#29B6F6] hover:bg-[#0277BD] text-white py-3 rounded-lg font-semibold transition-colors"
+                    >
+                      View Detailed Feedback
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <div className="text-6xl mb-4">📊</div>
+                    <h3 className="text-xl font-semibold text-gray-900 mb-2">No High Score Yet</h3>
+                    <p className="text-gray-600 mb-4">
+                      Complete an assessment for "{targetText}" to see your high score here!
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 border-t border-gray-200">
+                <div className="flex justify-between items-center">
+                  <div className="text-sm text-gray-500">
+                    {currentUser ? `User: ${currentUser.uid}` : 'No user'} | Language: {language}
+                  </div>
+                  <div className="flex space-x-3">
+                    <button
+                      onClick={loadHighScoreForCurrentText}
+                      className="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg text-sm font-semibold"
+                    >
+                      Debug: Load Score
+                    </button>
+                    <button
+                      onClick={() => setShowHighScores(false)}
+                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-sm font-semibold"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Detailed Feedback Modal */}
+        {showDetailedFeedback && detailedFeedbackData && (
+          <AssessmentFeedback
+            targetText={detailedFeedbackData.targetText}
+            level={detailedFeedbackData.level}
+            language={detailedFeedbackData.language}
+            overallScore={detailedFeedbackData.overallScore}
+            apiResponse={detailedFeedbackData.apiResponse}
+            isHighScore={detailedFeedbackData.isHighScore}
+            onClose={() => setShowDetailedFeedback(false)}
+          />
         )}
 
 

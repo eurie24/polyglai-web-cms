@@ -5,10 +5,13 @@ import Tesseract from 'tesseract.js';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../src/lib/firebase';
 import { azureSpeechService } from '../services/azure-speech-service';
 import { MicrosoftTranslatorService } from '../services/microsoft-translator-service';
+import { useUserData } from '../../src/hooks/useUserData';
+import UserStatsCard from '../../src/components/UserStatsCard';
+import PerformanceMonitor from '../../src/components/PerformanceMonitor';
 
 // Extend Window interface for Speech Recognition (keeping for compatibility)
 declare global {
@@ -25,6 +28,7 @@ type UserProfile = {
   email: string;
   preferredLanguage: string;
   uid: string;
+  avatarUrl?: string;
 };
 
 export default function UserDashboard() {
@@ -45,7 +49,7 @@ export default function UserDashboard() {
   // Translation state
   const [translationMode, setTranslationMode] = useState('text');
   const [sourceLanguage, setSourceLanguage] = useState('English');
-  const [targetLanguage, setTargetLanguage] = useState('Español');
+  const [targetLanguage, setTargetLanguage] = useState('English');
   const [inputText, setInputText] = useState('');
   const [outputText, setOutputText] = useState('');
   const [transliterationText, setTransliterationText] = useState('');
@@ -63,6 +67,13 @@ export default function UserDashboard() {
   const [otherLanguages, setOtherLanguages] = useState<{ id: string; name: string; flag: string }[]>([]);
   const [selectedLanguage, setSelectedLanguage] = useState<{ id: string; name: string; flag: string } | null>(null);
   const [activeProfileTab, setActiveProfileTab] = useState('achievements');
+  
+  // Edit profile state
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editPreferredLanguage, setEditPreferredLanguage] = useState('english');
+  const [editAvatar, setEditAvatar] = useState('/updated avatars/3.svg');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   
   // Speech recognition state
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -226,13 +237,15 @@ export default function UserDashboard() {
 
       if (userDoc.exists()) {
         const userData = userDoc.data();
+        const rawPreferredLanguage = userData.preferredLanguage || 'english';
         profile = {
           name: userData.name || userData.displayName || 'User',
           email: userData.email || '',
-          preferredLanguage: userData.preferredLanguage || 'english',
-          uid: userId
+          preferredLanguage: rawPreferredLanguage,
+          uid: userId,
+          avatarUrl: userData.avatarUrl || userData.photoURL || '/updated avatars/3.svg'
         };
-        prefLang = userData.preferredLanguage || 'english';
+        prefLang = mapDisplayNameToCode(rawPreferredLanguage);
       }
 
       // If no profile in main doc, try profile/info subcollection
@@ -240,13 +253,15 @@ export default function UserDashboard() {
         const profileDoc = await getDoc(doc(db, 'users', userId, 'profile', 'info'));
         if (profileDoc.exists()) {
           const profileData = profileDoc.data();
+          const rawPreferredLanguage = profileData.preferredLanguage || 'english';
           profile = {
             name: profileData.name || 'User',
             email: profileData.email || '',
-            preferredLanguage: profileData.preferredLanguage || 'english',
-            uid: userId
+            preferredLanguage: rawPreferredLanguage,
+            uid: userId,
+            avatarUrl: profileData.avatarUrl || '/updated avatars/3.svg'
           };
-          prefLang = profileData.preferredLanguage || 'english';
+          prefLang = mapDisplayNameToCode(rawPreferredLanguage);
         }
       }
 
@@ -259,25 +274,74 @@ export default function UserDashboard() {
         points = langData.points || 0;
       }
 
-      // Get assessment counts
-      const assessmentsQuery = await getDocs(
-        collection(db, 'users', userId, 'languages', prefLang.toLowerCase(), 'assessmentsData')
-      );
-
+      // Get assessment counts from assessmentsByLevel structure (matching Flutter version)
       let beginnerCount = 0;
       let intermediateCount = 0;
       let advancedCount = 0;
       let assessmentPoints = 0;
 
-      assessmentsQuery.docs.forEach(doc => {
-        const data = doc.data();
-        if (data.level === 'beginner') beginnerCount++;
-        if (data.level === 'intermediate') intermediateCount++;
-        if (data.level === 'advanced') advancedCount++;
-        if (data.score) {
-          assessmentPoints += parseInt(data.score) || 0;
+      try {
+        // Get beginner assessments
+        const beginnerAssessments = await getDocs(
+          collection(db, 'users', userId, 'languages', prefLang.toLowerCase(), 'assessmentsByLevel', 'beginner', 'assessments')
+        );
+        beginnerAssessments.docs.forEach(doc => {
+          const data = doc.data();
+          const score = parseInt(data.score) || 0;
+          if (score > 0) {
+            beginnerCount++;
+            assessmentPoints += score;
+          }
+        });
+
+        // Get intermediate assessments
+        const intermediateAssessments = await getDocs(
+          collection(db, 'users', userId, 'languages', prefLang.toLowerCase(), 'assessmentsByLevel', 'intermediate', 'assessments')
+        );
+        intermediateAssessments.docs.forEach(doc => {
+          const data = doc.data();
+          const score = parseInt(data.score) || 0;
+          if (score > 0) {
+            intermediateCount++;
+            assessmentPoints += score;
+          }
+        });
+
+        // Get advanced assessments (only for English)
+        if (prefLang.toLowerCase() === 'english') {
+          const advancedAssessments = await getDocs(
+            collection(db, 'users', userId, 'languages', prefLang.toLowerCase(), 'assessmentsByLevel', 'advanced', 'assessments')
+          );
+          advancedAssessments.docs.forEach(doc => {
+            const data = doc.data();
+            const score = parseInt(data.score) || 0;
+            if (score > 0) {
+              advancedCount++;
+              assessmentPoints += score;
+            }
+          });
         }
-      });
+      } catch (e) {
+        console.error('Error fetching assessments:', e);
+        // Fallback to old structure if assessmentsByLevel doesn't exist
+        try {
+          const assessmentsQuery = await getDocs(
+            collection(db, 'users', userId, 'languages', prefLang.toLowerCase(), 'assessmentsData')
+          );
+
+          assessmentsQuery.docs.forEach(doc => {
+            const data = doc.data();
+            if (data.level === 'beginner') beginnerCount++;
+            if (data.level === 'intermediate') intermediateCount++;
+            if (data.level === 'advanced') advancedCount++;
+            if (data.score) {
+              assessmentPoints += parseInt(data.score) || 0;
+            }
+          });
+        } catch (fallbackError) {
+          console.error('Error with fallback assessment query:', fallbackError);
+        }
+      }
 
       // Get character counts for progress calculation
       let beginnerTotal = 10;
@@ -305,6 +369,11 @@ export default function UserDashboard() {
       setUserProfile(profile);
       setPreferredLanguage(prefLang);
       setLanguagePoints(points + assessmentPoints);
+      
+      // Set target language to user's preferred language
+      if (profile) {
+        setTargetLanguage(profile.preferredLanguage);
+      }
       setBeginnerAssessmentCount(beginnerCount);
       setIntermediateAssessmentCount(intermediateCount);
       setAdvancedAssessmentCount(advancedCount);
@@ -330,6 +399,30 @@ export default function UserDashboard() {
     return languageNames[languageCode.toLowerCase()] || 'English';
   };
 
+  // Helper method to map display names to language codes for backward compatibility (matching Flutter version)
+  const mapDisplayNameToCode = (languageValue: string) => {
+    if (!languageValue) return 'english';
+    
+    const normalized = languageValue.trim();
+    
+    // Check if it's already a code (lowercase)
+    const validCodes = ['english', 'mandarin', 'spanish', 'japanese', 'korean'];
+    if (validCodes.includes(normalized.toLowerCase())) {
+      return normalized.toLowerCase();
+    }
+    
+    // Map display names to codes
+    const displayNameToCode: { [key: string]: string } = {
+      'English': 'english',
+      'Mandarin': 'mandarin', 
+      'Español': 'spanish',
+      'Nihongo': 'japanese',
+      'Hangugeo': 'korean',
+    };
+    
+    return displayNameToCode[normalized] || 'english';
+  };
+
   const handleSignOut = async () => {
     try {
       await signOut(auth);
@@ -337,6 +430,71 @@ export default function UserDashboard() {
     } catch (error) {
       console.error('Error signing out:', error);
     }
+  };
+
+  // Edit profile functions
+  const handleEditProfileOpen = () => {
+    if (userProfile) {
+      setEditName(userProfile.name || '');
+      setEditPreferredLanguage(userProfile.preferredLanguage || 'english');
+      setEditAvatar(userProfile.avatarUrl || '/updated avatars/3.svg');
+    }
+    setShowEditProfile(true);
+  };
+
+  const handleEditProfileSave = async () => {
+    if (!userProfile?.uid) return;
+    
+    setIsSavingProfile(true);
+    try {
+      // Update user profile in Firestore
+      const userRef = doc(db, 'users', userProfile.uid);
+      await updateDoc(userRef, {
+        name: editName.trim(),
+        preferredLanguage: editPreferredLanguage,
+        avatarUrl: editAvatar,
+        lastLoginAt: new Date()
+      });
+
+      // Also persist to profile/info subdocument for backward compatibility
+      const profileInfoRef = doc(db, 'users', userProfile.uid, 'profile', 'info');
+      await setDoc(profileInfoRef, {
+        name: editName.trim(),
+        preferredLanguage: editPreferredLanguage,
+        avatarUrl: editAvatar,
+        email: userProfile.email || '',
+        updatedAt: new Date()
+      }, { merge: true });
+
+      // Update local state
+      setUserProfile(prev => prev ? {
+        ...prev,
+        name: editName.trim(),
+        preferredLanguage: editPreferredLanguage,
+        avatarUrl: editAvatar
+      } : null);
+
+      // Update preferred language for translation
+      setPreferredLanguage(editPreferredLanguage);
+      setTargetLanguage(editPreferredLanguage);
+
+      setShowEditProfile(false);
+      
+      // Show success message
+      alert('Profile updated successfully!');
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      alert('Failed to update profile. Please try again.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleEditProfileCancel = () => {
+    setShowEditProfile(false);
+    setEditName('');
+    setEditPreferredLanguage('english');
+    setEditAvatar('/updated avatars/3.svg');
   };
 
   // Translation functions
@@ -914,8 +1072,8 @@ export default function UserDashboard() {
     const getSampleText = (langCode: string, levelCode: string): string => {
       const samples: Record<string, { beginner: string; intermediate: string; advanced?: string }> = {
         english: {
-          beginner: 'hello',
-          intermediate: 'good morning',
+          beginner: 'money',
+          intermediate: 'I\'m not sure',
           advanced: 'Practice makes perfect when learning new languages.'
         },
         mandarin: {
@@ -937,7 +1095,7 @@ export default function UserDashboard() {
       };
       const lang = samples[langCode] || samples.english;
       const key = (levelCode === 'advanced' && lang.advanced) ? 'advanced' : (levelCode as 'beginner' | 'intermediate');
-      return (lang as { [key: string]: string })[key] || 'hello';
+      return (lang as { [key: string]: string })[key] || 'money';
     };
 
     const langCode = selectedLanguage?.id || 'english';
@@ -953,24 +1111,20 @@ export default function UserDashboard() {
     const percentage = total > 0 ? (current / total) * 100 : 0;
     
     return (
-      <div className="flex-1 bg-white rounded-lg p-4 shadow-sm border border-gray-200">
+      <div className="flex-1 p-3 rounded-lg" style={{ backgroundColor: color }}>
         <div className="text-center">
-          <div className={`w-full h-2 bg-gray-200 rounded-full mb-2`}>
-            <div 
-              className={`h-2 rounded-full transition-all duration-300`}
-              style={{ 
-                width: `${Math.min(percentage, 100)}%`,
-                backgroundColor: color
-              }}
-            ></div>
-          </div>
-          <h3 className="font-semibold text-gray-900 text-sm">{label}</h3>
-          <p className="text-xs text-gray-600">{current}/{total}</p>
-          <p className="text-xs text-gray-500">({Math.round(percentage)}%)</p>
+          <h3 className="font-bold text-white text-xs mb-1">{label}</h3>
+          <div className="flex items-center justify-center space-x-1">
+            <span className="text-white text-sm">{current}/{total}</span>
+            <span className="text-white/70 text-xs">({Math.round(percentage)}%)</span>
         </div>
       </div>
-    );
-  };
+      
+      {/* Performance Monitor */}
+      <PerformanceMonitor />
+    </div>
+  );
+};
 
   if (loading) {
     return (
@@ -1114,7 +1268,7 @@ export default function UserDashboard() {
               <div className={`flex items-center mb-6 ${
                 isSidebarCollapsed ? 'flex-col lg:flex-row text-center lg:text-left' : 'flex-row'
               }`}>
-                {/* Progress Circle */}
+                {/* Progress Circle - Assessment Completion Percentage */}
                 <div className={`relative ${isSidebarCollapsed ? 'w-20 h-20 mb-4 lg:mb-0 lg:mr-6' : 'w-20 h-20 mr-6'}`}>
                   <svg className="w-20 h-20 transform -rotate-90" viewBox="0 0 36 36">
                     <path
@@ -1128,11 +1282,29 @@ export default function UserDashboard() {
                       fill="none"
                       stroke="#0277BD"
                       strokeWidth="2"
-                      strokeDasharray={`${Math.min((languagePoints / 1000) * 100, 100)}, 100`}
+                      strokeDasharray={`${Math.min(((() => {
+                        // Calculate assessment completion percentage (beginner + intermediate only)
+                        const totalBeginnerIntermediate = beginnerTotalItems + intermediateTotalItems;
+                        const completedBeginnerIntermediate = beginnerAssessmentCount + intermediateAssessmentCount;
+                        const percentage = totalBeginnerIntermediate > 0 
+                          ? (completedBeginnerIntermediate / totalBeginnerIntermediate) * 100
+                          : 0;
+                        return Math.min(percentage, 100);
+                      })()), 100)}, 100`}
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-lg font-bold text-[#0277BD]">{languagePoints}</span>
+                    <span className="text-lg font-bold text-[#0277BD]">
+                      {(() => {
+                        // Calculate assessment completion percentage (beginner + intermediate only)
+                        const totalBeginnerIntermediate = beginnerTotalItems + intermediateTotalItems;
+                        const completedBeginnerIntermediate = beginnerAssessmentCount + intermediateAssessmentCount;
+                        const percentage = totalBeginnerIntermediate > 0 
+                          ? (completedBeginnerIntermediate / totalBeginnerIntermediate) * 100
+                          : 0;
+                        return `${Math.round(percentage)}%`;
+                      })()}
+                    </span>
                   </div>
                 </div>
                 
@@ -1141,23 +1313,20 @@ export default function UserDashboard() {
                   <h2 className={`font-bold text-gray-900 mb-1 ${
                     isSidebarCollapsed ? 'text-lg lg:text-xl' : 'text-xl'
                   }`}>
-                    {getLanguageDisplayName(preferredLanguage)} Progress
+                    {getLanguageDisplayName(preferredLanguage)} Assessments
                   </h2>
-                  <p className="text-gray-600">Complete challenges to gain experience</p>
+                  <p className="text-gray-600">Assessment completion progress</p>
                 </div>
               </div>
 
               {/* Level Progress Bars */}
               <div className={`grid gap-4 ${
                 isSidebarCollapsed 
-                  ? (preferredLanguage?.toLowerCase() === 'english' ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1 lg:grid-cols-2')
-                  : (preferredLanguage?.toLowerCase() === 'english' ? 'grid-cols-3' : 'grid-cols-2')
+                  ? 'grid-cols-1 lg:grid-cols-2'
+                  : 'grid-cols-2'
               }`}>
                 {buildLevelProgressBar('Beginner', beginnerAssessmentCount, beginnerTotalItems, '#0277BD')}
                 {buildLevelProgressBar('Intermediate', intermediateAssessmentCount, intermediateTotalItems, '#1A237E')}
-                {preferredLanguage?.toLowerCase() === 'english' && (
-                  buildLevelProgressBar('Advanced', advancedAssessmentCount, advancedTotalItems, '#4A148C')
-                )}
               </div>
             </div>
 
@@ -1203,23 +1372,127 @@ export default function UserDashboard() {
 
                 {isExpanded && (
                   <div className="space-y-3 mt-4 pt-4 border-t border-gray-200">
-                    <button className="w-full px-4 py-3 border-2 border-[#0277BD] text-[#0277BD] rounded-lg hover:bg-[#0277BD] hover:text-white transition-colors font-medium">
-                      Beginner Assessment
+                    <button 
+                      onClick={() => handleDifficultySelect('beginner')}
+                      className="w-full px-4 py-3 border-2 border-[#0277BD] text-[#0277BD] rounded-lg hover:bg-[#0277BD] hover:text-white transition-colors font-medium"
+                    >
+                      Beginner
                     </button>
-                    <button className="w-full px-4 py-3 border-2 border-[#0277BD] text-[#0277BD] rounded-lg hover:bg-[#0277BD] hover:text-white transition-colors font-medium">
-                      Intermediate Assessment
+                    <button 
+                      onClick={() => handleDifficultySelect('intermediate')}
+                      className="w-full px-4 py-3 border-2 border-[#0277BD] text-[#0277BD] rounded-lg hover:bg-[#0277BD] hover:text-white transition-colors font-medium"
+                    >
+                      Intermediate
                     </button>
-                    {preferredLanguage?.toLowerCase() === 'english' && (
-                      <button className="w-full px-4 py-3 border-2 border-[#0277BD] text-[#0277BD] rounded-lg hover:bg-[#0277BD] hover:text-white transition-colors font-medium">
-                        Advanced Assessment
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Word Trainer Section removed */}
+            {/* Word Trainer Section */}
+            <div className="mb-8">
+              <h2 className={`font-bold text-gray-900 mb-6 ${
+                isSidebarCollapsed ? 'text-xl lg:text-2xl' : 'text-2xl'
+              }`}>Word Trainer</h2>
+              
+              <div className="bg-gradient-to-br from-[#29B6F6] to-[#0D47A1] rounded-xl p-6 text-white">
+                <div className={`flex items-center mb-4 ${
+                  isSidebarCollapsed ? 'flex-col lg:flex-row text-center lg:text-left' : 'flex-row'
+                }`}>
+                  <div className={`w-12 h-12 bg-white rounded-full flex items-center justify-center ${
+                    isSidebarCollapsed ? 'mb-4 lg:mb-0 lg:mr-4' : 'mr-4'
+                  }`}>
+                    <svg className="w-6 h-6 text-[#29B6F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                  <div className={`${isSidebarCollapsed ? 'lg:flex-1 mb-4 lg:mb-0' : 'flex-1'}`}>
+                    <h3 className={`font-bold ${
+                      isSidebarCollapsed ? 'text-lg lg:text-xl' : 'text-xl'
+                    }`}>
+                      Test your vocabulary knowledge
+                    </h3>
+                    <p className="text-white/90">Practice with multiple choice questions</p>
+                  </div>
+                </div>
+                
+                <div className="bg-white/20 rounded-lg p-4 mb-4">
+                  <h4 className="font-bold mb-2">Features:</h4>
+                  <ul className="text-sm space-y-1 text-white/90">
+                    <li>• Multiple choice questions</li>
+                    <li>• Instant feedback and explanations</li>
+                    <li>• Points and progress tracking</li>
+                  </ul>
+                </div>
+                
+                <button 
+                  onClick={() => {
+                    const url = `/word-trainer?language=${encodeURIComponent(preferredLanguage)}&level=beginner`;
+                    router.push(url);
+                  }}
+                  className="w-full bg-white text-[#29B6F6] px-6 py-3 rounded-lg font-bold hover:bg-gray-100 transition-colors flex items-center justify-center"
+                >
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Start Word Trainer
+                </button>
+              </div>
+            </div>
+
+            {/* What's New Section */}
+            <div className="mb-8">
+              <h2 className={`font-bold text-gray-900 mb-6 ${
+                isSidebarCollapsed ? 'text-xl lg:text-2xl' : 'text-2xl'
+              }`}>What's New</h2>
+              
+              <div className="bg-gradient-to-br from-[#29B6F6] to-[#0277BD] rounded-xl p-6 text-white">
+                <div className={`flex items-center mb-4 ${
+                  isSidebarCollapsed ? 'flex-col lg:flex-row text-center lg:text-left' : 'flex-row'
+                }`}>
+                  <div className={`w-12 h-12 bg-white rounded-full flex items-center justify-center ${
+                    isSidebarCollapsed ? 'mb-4 lg:mb-0 lg:mr-4' : 'mr-4'
+                  }`}>
+                    <svg className="w-6 h-6 text-[#29B6F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                  <div className={`${isSidebarCollapsed ? 'lg:flex-1 mb-4 lg:mb-0' : 'flex-1'}`}>
+                    <h3 className={`font-bold ${
+                      isSidebarCollapsed ? 'text-lg lg:text-xl' : 'text-xl'
+                    }`}>
+                      Advanced English Evaluation
+                    </h3>
+                    <p className="text-white/90">Try our new unscripted pronunciation assessment</p>
+                  </div>
+                </div>
+                
+                <div className="bg-white/20 rounded-lg p-4 mb-4">
+                  <h4 className="font-bold mb-2">New Features:</h4>
+                  <ul className="text-sm space-y-1 text-white/90">
+                    <li>• Unscripted conversation evaluation</li>
+                    <li>• Advanced pronunciation analysis</li>
+                    <li>• Real-time content assessment</li>
+                  </ul>
+                </div>
+                
+                <button 
+                  onClick={() => {
+                    if (preferredLanguage?.toLowerCase() !== 'english') {
+                      alert('Advanced English evaluation is only available for English language users');
+                      return;
+                    }
+                    handleDifficultySelect('advanced');
+                  }}
+                  className="w-full bg-white text-[#29B6F6] px-6 py-3 rounded-lg font-bold hover:bg-gray-100 transition-colors flex items-center justify-center"
+                >
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                  </svg>
+                  Try Advanced English
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1709,14 +1982,6 @@ export default function UserDashboard() {
                           >
                             Intermediate
                           </button>
-                          {featuredLanguage.id === 'english' && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleDifficultySelect('advanced'); }}
-                              className="w-full bg-orange-100 hover:bg-orange-200 text-orange-800 font-bold py-3 px-4 rounded-lg transition-colors"
-                            >
-                              Advanced
-                            </button>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -1763,14 +2028,6 @@ export default function UserDashboard() {
                             >
                               Intermediate
                             </button>
-                            {language.id === 'english' && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleDifficultySelect('advanced'); }}
-                                className="w-full bg-orange-100 hover:bg-orange-200 text-orange-800 font-bold py-2.5 px-4 rounded-lg transition-colors"
-                              >
-                                Advanced
-                              </button>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -1787,161 +2044,267 @@ export default function UserDashboard() {
         {/* Word Trainer section removed */}
 
         {activeSection === 'profile' && (
-          <div className={`${isSidebarCollapsed ? 'max-w-7xl' : 'max-w-6xl'} mx-auto`}>
-            <div className={`flex gap-8 ${
-              isSidebarCollapsed ? 'flex-col xl:flex-row' : 'flex-col lg:flex-row'
-            }`}>
-              {/* Left Column - Profile Info */}
-              <div className={`${isSidebarCollapsed ? 'xl:flex-1' : 'flex-1'}`}>
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
-                  {/* Profile Picture and Name */}
-                  <div className="text-center mb-8">
-                    <div className="w-32 h-32 mx-auto mb-4 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
-                                             <img 
-                         src="/avatars/avatar1.png" 
-                         alt="Profile"
-                         className="w-full h-full object-cover"
-                       />
-                    </div>
-                    <h2 className="text-2xl font-bold text-gray-900 mb-4">{userProfile?.name || 'User'}</h2>
-                    <button className="bg-[#29B6F6] hover:bg-[#0277BD] text-white px-8 py-3 rounded-full font-semibold transition-colors">
-                      Edit Profile
+            <div className={`${isSidebarCollapsed ? 'max-w-7xl' : 'max-w-6xl'} mx-auto`}>
+            {/* Profile Header - Large Rectangle Avatar */}
+            <div className="mb-8">
+              {/* Large Rectangle Avatar */}
+              <div className="w-full h-130 mb-6 rounded-2xl overflow-hidden shadow-lg">
+                <img 
+                  src={showEditProfile ? editAvatar : (userProfile?.avatarUrl || "/updated avatars/3.svg")} 
+                  alt="Profile Avatar"
+                  className="w-full h-full object-cover object-top"
+                />
+              </div>
+              {/* Inline Avatar Selection (shown when editing) */}
+              {showEditProfile && (
+                <div className="px-5 mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Choose an avatar</h3>
+                  <div className="grid grid-cols-6 gap-3">
+                    {[
+                      '/updated avatars/3.svg',
+                      '/updated avatars/4.svg',
+                      '/updated avatars/5.svg',
+                      '/updated avatars/6.svg',
+                      '/updated avatars/7.svg',
+                      '/updated avatars/8.svg',
+                    ].map((avatar) => (
+                      <button
+                        key={avatar}
+                        onClick={() => setEditAvatar(avatar)}
+                        className={`relative rounded-lg overflow-hidden border-2 transition-colors ${editAvatar === avatar ? 'border-blue-500' : 'border-gray-200 hover:border-gray-300'}`}
+                        aria-label={`Select ${avatar}`}
+                      >
+                        <img src={avatar} alt="Avatar option" className="w-14 h-14 object-cover" />
+                        {editAvatar === avatar && (
+                          <svg className="w-5 h-5 text-blue-500 absolute top-1 right-1" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* User Info Row */}
+              <div className="flex items-start justify-between px-5">
+                <div className="flex-1">
+                  {!showEditProfile ? (
+                    <>
+                      <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                        {userProfile?.name || 'User'}
+                      </h1>
+                      <p className="text-gray-600 text-lg">Joined August 2025</p>
+                    </>
+                  ) : (
+                    <>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="w-full max-w-md px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-4"
+                        placeholder="Enter your name"
+                      />
+                      <div className="max-w-xl">
+                        <label className="block text-sm font-medium text-gray-700 mb-3">Preferred Language</label>
+                        <div className="space-y-2">
+                          {[
+                            { code: 'english', name: 'English', flag: '🇺🇸' },
+                            { code: 'mandarin', name: 'Mandarin', flag: '🇨🇳' },
+                            { code: 'spanish', name: 'Español', flag: '🇪🇸' },
+                            { code: 'japanese', name: 'Nihongo', flag: '🇯🇵' },
+                            { code: 'korean', name: 'Hangugeo', flag: '🇰🇷' },
+                          ].map((language) => (
+                            <button
+                              key={language.code}
+                              onClick={() => setEditPreferredLanguage(language.code)}
+                              className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-colors ${
+                                editPreferredLanguage === language.code
+                                  ? 'border-blue-500 bg-blue-50'
+                                  : 'border-gray-200 hover:border-gray-300'
+                              }`}
+                              type="button"
+                            >
+                              <span className="text-xl">{language.flag}</span>
+                              <span className={`font-medium ${
+                                editPreferredLanguage === language.code ? 'text-blue-700' : 'text-gray-700'
+                              }`}>
+                                {language.name}
+                              </span>
+                              {editPreferredLanguage === language.code && (
+                                <svg className="w-5 h-5 text-blue-500 ml-auto" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+                
+                {/* Action Buttons */}
+                {!showEditProfile ? (
+                  <button 
+                    onClick={handleEditProfileOpen}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors font-medium"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    Edit Profile
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleEditProfileCancel}
+                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleEditProfileSave}
+                      disabled={isSavingProfile || !editName.trim()}
+                      className="px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white rounded-lg transition-colors font-medium"
+                      type="button"
+                    >
+                      {isSavingProfile ? 'Saving...' : 'Save Changes'}
                     </button>
                   </div>
+                )}
+              </div>
+            </div>
 
-                  {/* Theme Mode Selection */}
-                  <div className="mb-6">
-                    <div className="bg-[#F5F9FF] border border-[#E2E8F0] rounded-xl p-4 cursor-pointer hover:bg-[#E8F4FD] transition-colors">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-6 h-6 text-[#29B6F6]">
-                            <svg fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-3.03 0-5.5-2.47-5.5-5.5 0-1.82.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/>
-                            </svg>
-                          </div>
-                          <div>
-                            <p className="font-medium text-gray-900">Theme Mode</p>
-                            <p className="text-sm text-gray-600">System</p>
-                          </div>
-                        </div>
-                        <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"/>
-                        </svg>
-                      </div>
+            {/* Overview Section */}
+            <div className="mb-8">
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">Overview</h2>
+              
+              {/* Stats Cards Grid - 2x2 layout */}
+              <div className="grid grid-cols-2 gap-4">
+                {/* Day Streak */}
+                <div className="bg-white rounded-2xl p-4 shadow-sm border-2 border-blue-200">
+                  <div className="flex items-center">
+                    <img src="/updated stats/streak.svg" alt="Streak" className="w-7 h-7 mr-3" />
+                    <div>
+                      <p className="text-lg font-bold text-gray-900">7</p>
+                      <p className="text-xs text-gray-600">Day Streak</p>
                     </div>
                   </div>
+                </div>
 
-                  {/* User Info */}
-                  <div className="space-y-4">
+                {/* Lessons Passed */}
+                <div className="bg-white rounded-2xl p-4 shadow-sm border-2 border-blue-200">
+                  <div className="flex items-center">
+                    <img src="/updated stats/lessons.svg" alt="Lessons" className="w-7 h-7 mr-3" />
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
-                      <input 
-                        type="text" 
-                        value={userProfile?.name || ''} 
-                        readOnly
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
-                      />
+                      <p className="text-lg font-bold text-gray-900">0</p>
+                      <p className="text-xs text-gray-600">Lessons Passed</p>
                     </div>
+                  </div>
+                </div>
+
+                {/* Assessments */}
+                <div className="bg-white rounded-2xl p-4 shadow-sm border-2 border-blue-200">
+                  <div className="flex items-center">
+                    <img src="/updated stats/assessments.svg" alt="Assessments" className="w-7 h-7 mr-3" />
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-                      <input 
-                        type="email" 
-                        value={userProfile?.email || ''} 
-                        readOnly
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
-                      />
+                      <p className="text-lg font-bold text-gray-900">0</p>
+                      <p className="text-xs text-gray-600">Assessments</p>
                     </div>
+                  </div>
+                </div>
+
+                {/* Points */}
+                <div className="bg-white rounded-2xl p-4 shadow-sm border-2 border-blue-200">
+                  <div className="flex items-center">
+                    <img src="/updated stats/points.svg" alt="Points" className="w-7 h-7 mr-3" />
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Preferred Language</label>
-                      <input 
-                        type="text" 
-                        value={getLanguageDisplayName(preferredLanguage)} 
-                        readOnly
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
-                      />
+                      <p className="text-lg font-bold text-gray-900">{languagePoints}</p>
+                      <p className="text-xs text-gray-600">Points</p>
                     </div>
                   </div>
                 </div>
               </div>
+            </div>
 
-              {/* Right Column - Statistics */}
-              <div className={`${isSidebarCollapsed ? 'xl:flex-1' : 'flex-1'}`}>
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
-                  <h3 className="text-2xl font-bold text-gray-900 mb-6">Statistics</h3>
-                  
-                  {/* Stats Grid */}
-                  <div className={`grid gap-4 mb-8 ${
-                    isSidebarCollapsed ? 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-4' : 'grid-cols-2'
-                  }`}>
-                    <div className="bg-gradient-to-br from-red-50 to-red-100 p-4 rounded-xl text-center">
-                      <div className="text-2xl mb-2">🔥</div>
-                      <div className="text-2xl font-bold text-gray-900">{languagePoints}</div>
-                      <div className="text-sm text-gray-600">Day Streak</div>
-                    </div>
-                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl text-center">
-                      <div className="text-2xl mb-2">📚</div>
-                      <div className="text-2xl font-bold text-gray-900">0</div>
-                      <div className="text-sm text-gray-600">Lessons Passed</div>
-                    </div>
-                    <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl text-center">
-                      <div className="text-2xl mb-2">🎯</div>
-                      <div className="text-2xl font-bold text-gray-900">0</div>
-                      <div className="text-sm text-gray-600">Assessments</div>
-                    </div>
-                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-xl text-center">
-                      <div className="text-2xl mb-2">⭐</div>
-                      <div className="text-2xl font-bold text-gray-900">{languagePoints}</div>
-                      <div className="text-sm text-gray-600">Points</div>
-                    </div>
+            {/* Achievements Section */}
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">Achievements</h2>
+                <button className="text-[#29B6F6] font-semibold text-sm hover:text-[#0277BD] transition-colors">
+                  VIEW ALL
+                </button>
+              </div>
+              
+              {/* Achievement badges preview */}
+              <div className="h-30 flex justify-evenly">
+                <div className="flex-1 mx-2">
+                  <div className="w-full h-24 rounded-2xl shadow-md overflow-hidden">
+                    <img 
+                      src="/badges/rookie_linguist.svg" 
+                      alt="Rookie Linguist"
+                      className="w-full h-full object-contain grayscale"
+                    />
                   </div>
-
-                  {/* Tabs */}
-                  <div className="border-b border-gray-200 mb-6">
-                    <nav className="flex space-x-8">
-                      <button 
-                        onClick={() => setActiveProfileTab('achievements')}
-                        className={`py-2 px-1 border-b-2 font-medium transition-colors ${
-                          activeProfileTab === 'achievements' 
-                            ? 'border-[#29B6F6] text-[#29B6F6]' 
-                            : 'border-transparent text-gray-500 hover:text-gray-700'
-                        }`}
-                      >
-                        Achievements
-                      </button>
-                      <button 
-                        onClick={() => setActiveProfileTab('challenges')}
-                        className={`py-2 px-1 border-b-2 font-medium transition-colors ${
-                          activeProfileTab === 'challenges' 
-                            ? 'border-[#29B6F6] text-[#29B6F6]' 
-                            : 'border-transparent text-gray-500 hover:text-gray-700'
-                        }`}
-                      >
-                        Challenges
-                      </button>
-                    </nav>
+                </div>
+                <div className="flex-1 mx-2">
+                  <div className="w-full h-24 rounded-2xl shadow-md overflow-hidden">
+                    <img 
+                      src="/badges/word_explorer.svg" 
+                      alt="Word Explorer"
+                      className="w-full h-full object-contain grayscale"
+                    />
                   </div>
+                </div>
+                <div className="flex-1 mx-2">
+                  <div className="w-full h-24 rounded-2xl shadow-md overflow-hidden">
+                    <img 
+                      src="/badges/voice_breaker.svg" 
+                      alt="Voice Breaker"
+                      className="w-full h-full object-contain grayscale"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
 
-                  {/* Tab Content */}
-                  <div className="min-h-[300px]">
-                    {activeProfileTab === 'achievements' ? (
-                      <div className="text-center py-12">
-                        <div className="text-4xl mb-4">🏆</div>
-                        <h4 className="text-lg font-semibold text-gray-900 mb-2">Your Achievements</h4>
-                        <p className="text-gray-600 mb-4">Complete challenges and assessments to unlock achievements</p>
-                        <button className="bg-[#29B6F6] hover:bg-[#0277BD] text-white px-6 py-2 rounded-lg font-medium transition-colors">
-                          Start Learning
-                        </button>
+            {/* Challenges Section */}
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">Challenges</h2>
+                <button className="text-[#29B6F6] font-semibold text-sm hover:text-[#0277BD] transition-colors">
+                  VIEW ALL
+                </button>
+              </div>
+              
+              {/* Challenge cards preview */}
+              <div className="space-y-3">
+                <div className="bg-white rounded-xl p-4 shadow-sm border-2 border-[#2AC3F4]">
+                  <div className="flex items-center">
+                    {/* Badge icon */}
+                    <div className="w-12 h-12 rounded-lg shadow-sm overflow-hidden mr-3">
+                      <img 
+                        src="/badges/rookie_linguist.svg" 
+                        alt="Rookie Linguist"
+                        className="w-full h-full object-contain grayscale"
+                      />
+                    </div>
+                    
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-sm text-gray-900 mb-1">Rookie Linguist</h4>
+                      <p className="text-xs text-gray-600 mb-1">Complete your first lesson in any language</p>
+                    </div>
+                    
+                    {/* Status indicator */}
+                    <div className="bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs font-medium">
+                      <div className="flex items-center">
+                        <span className="mr-1">🔒</span>
+                        Locked
                       </div>
-                    ) : (
-                      <div className="text-center py-12">
-                        <div className="text-4xl mb-4">🎯</div>
-                        <h4 className="text-lg font-semibold text-gray-900 mb-2">Daily Challenges</h4>
-                        <p className="text-gray-600 mb-4">Complete daily challenges to earn points and rewards</p>
-                        <button className="bg-[#29B6F6] hover:bg-[#0277BD] text-white px-6 py-2 rounded-lg font-medium transition-colors">
-                          View Challenges
-                        </button>
-                      </div>
-                    )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1950,7 +2313,10 @@ export default function UserDashboard() {
         )}
       </div>
 
+      {/* Sliding panel and backdrop removed in favor of inline editing */}
 
+      {/* Performance Monitor */}
+      <PerformanceMonitor />
     </div>
   );
 }
