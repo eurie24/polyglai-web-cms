@@ -182,6 +182,115 @@ export class MicrosoftTranslatorService {
   }
 
   /**
+   * Detect the language of the given text
+   * 
+   * @param text - The text to detect the language for
+   * @returns The detected language code
+   */
+  static async detectLanguage(text: string): Promise<string> {
+    if (!text.trim()) {
+      throw new Error('Text cannot be empty for language detection');
+    }
+
+    try {
+      const { subscriptionKey, region } = this.getConfiguration();
+
+      const endpoint = 'https://api.cognitive.microsofttranslator.com';
+      const url = new URL(`${endpoint}/detect`);
+      url.searchParams.append('api-version', '3.0');
+
+      console.log('🔍 Detecting language for text:', `"${text.substring(0, 50)}..."`);
+
+      const requestBody = JSON.stringify([
+        { Text: text }
+      ]);
+
+      const response = await fetch(url.toString(), {
+        method: 'POST',
+        headers: {
+          'Ocp-Apim-Subscription-Key': subscriptionKey,
+          'Ocp-Apim-Subscription-Region': region,
+          'Content-Type': 'application/json; charset=UTF-8',
+        },
+        body: requestBody,
+      });
+
+      console.log('📡 Language detection response status:', response.status);
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (Array.isArray(data) && data.length > 0) {
+          const detection = data[0];
+          const detectedLanguage = detection.language as string;
+          const confidence = detection.score as number;
+          
+          console.log('✅ Language detected:', detectedLanguage, 'with confidence:', confidence);
+          
+          // Convert Microsoft language codes back to our app's format
+          const appLanguageCode = this.getAppLanguageCode(detectedLanguage);
+          return appLanguageCode;
+        }
+        
+        throw new Error('Unexpected response format from Microsoft Translator detect API');
+      } else {
+        const errorBody = await response.text();
+        console.log('❌ Language detection failed:', `${response.status} - ${errorBody}`);
+        throw new Error(`Language detection failed: ${response.status}`);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Language detection')) {
+        throw error;
+      }
+      console.log('❌ Language detection error:', error);
+      throw new Error(`Language detection failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Convert Microsoft language codes back to our app's format
+   */
+  private static getAppLanguageCode(microsoftCode: string): string {
+    // Reverse mapping from Microsoft codes to our app codes
+    const reverseMapping: { [key: string]: string } = {
+      'en': 'en',
+      'es': 'es', 
+      'zh-Hans': 'zh-cn',
+      'ja': 'ja',
+      'ko': 'ko',
+    };
+    
+    return reverseMapping[microsoftCode] || microsoftCode;
+  }
+
+  /**
+   * Fallback language detection using basic pattern matching
+   * This is used when Microsoft Translator is not configured
+   */
+  static fallbackLanguageDetection(text: string): string {
+    // Basic language detection patterns
+    const patterns = {
+      'en': /^[a-zA-Z\s.,!?'"()-]+$/,
+      'es': /[ñáéíóúüÑÁÉÍÓÚÜ]/,
+      'zh-cn': /[\u4e00-\u9fff]/,
+      'ja': /[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]/,
+      'ko': /[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/,
+    };
+
+    // Check for specific language patterns
+    for (const [lang, pattern] of Object.entries(patterns)) {
+      if (pattern.test(text)) {
+        console.log('🔍 Fallback language detection:', lang);
+        return lang;
+      }
+    }
+
+    // Default to English if no pattern matches
+    console.log('🔍 Fallback language detection: defaulting to English');
+    return 'en';
+  }
+
+  /**
    * Get supported languages from Microsoft Translator
    * 
    * @returns A map of language codes to language names

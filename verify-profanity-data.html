@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Verify Profanity Data</title>
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, getDocs, query, where } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBQqQqQqQqQqQqQqQqQqQqQqQqQqQqQqQ",
+            authDomain: "polyglai-5591c.firebaseapp.com",
+            projectId: "polyglai-5591c",
+            storageBucket: "polyglai-5591c.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef123456"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        async function verifyData() {
+            try {
+                // Sign in anonymously
+                const userCredential = await signInAnonymously(auth);
+                console.log('Signed in as:', userCredential.user.uid);
+
+                // Get all users
+                console.log('=== USERS ===');
+                const usersSnapshot = await getDocs(collection(db, 'users'));
+                console.log(`Total users: ${usersSnapshot.docs.length}`);
+                
+                usersSnapshot.docs.forEach(doc => {
+                    const data = doc.data();
+                    console.log(`User ${doc.id}:`, {
+                        name: data.name || data.displayName,
+                        email: data.email,
+                        profanityCount: data.profanityCount || 0,
+                        lastProfanityDetected: data.lastProfanityDetected
+                    });
+                });
+
+                // Get all profanity records
+                console.log('\n=== PROFANITY RECORDS ===');
+                const profanitySnapshot = await getDocs(collection(db, 'profanity_records'));
+                console.log(`Total profanity records: ${profanitySnapshot.docs.length}`);
+                
+                profanitySnapshot.docs.forEach(doc => {
+                    const data = doc.data();
+                    console.log(`Record ${doc.id}:`, {
+                        userId: data.userId,
+                        text: data.text,
+                        context: data.context,
+                        language: data.language,
+                        timestamp: data.timestamp,
+                        detectedWords: data.detectedWords
+                    });
+                });
+
+                // Group by user
+                console.log('\n=== PROFANITY BY USER ===');
+                const profanityByUser = {};
+                profanitySnapshot.docs.forEach(doc => {
+                    const data = doc.data();
+                    const userId = data.userId;
+                    if (!profanityByUser[userId]) {
+                        profanityByUser[userId] = [];
+                    }
+                    profanityByUser[userId].push({
+                        id: doc.id,
+                        text: data.text,
+                        timestamp: data.timestamp,
+                        context: data.context
+                    });
+                });
+
+                Object.keys(profanityByUser).forEach(userId => {
+                    console.log(`User ${userId}: ${profanityByUser[userId].length} records`);
+                    profanityByUser[userId].forEach(record => {
+                        console.log(`  - ${record.text} (${record.context})`);
+                    });
+                });
+
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        // Add button to verify
+        document.addEventListener('DOMContentLoaded', () => {
+            const button = document.createElement('button');
+            button.textContent = 'Verify Profanity Data';
+            button.onclick = verifyData;
+            button.style.cssText = 'padding: 10px 20px; font-size: 16px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; margin: 10px;';
+            document.body.appendChild(button);
+            
+            const output = document.createElement('div');
+            output.id = 'output';
+            output.style.cssText = 'margin: 20px; padding: 10px; background: #f5f5f5; border-radius: 5px; font-family: monospace; white-space: pre-wrap;';
+            document.body.appendChild(output);
+        });
+    </script>
+</head>
+<body>
+    <h1>Verify Profanity Data</h1>
+    <p>Click the button to check what's actually in the Firestore database.</p>
+    <p>Check the browser console for detailed output.</p>
+</body>
+</html>

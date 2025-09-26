@@ -50,7 +50,7 @@ const users = [
     id: 'user3',
     name: 'Alex Chen',
     email: 'alex@example.com',
-    gender: 'Non Binary',
+    gender: 'Non-binary',
     age: 24,
     location: 'Texas',
     role: 'user',

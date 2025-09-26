@@ -71,14 +71,27 @@ ChartBar.displayName = 'ChartBar';
 
 // Memoized gender distribution component
 const GenderDistribution = memo(({ users }: { users: User[] }) => {
+  // Helper function to normalize gender values for consistent matching
+  const normalizeGender = (gender?: string): string => {
+    if (!gender) return '';
+    const normalized = gender.trim();
+    
+    // Handle various Non-binary formats
+    if (normalized === 'Non - Binary' || normalized === 'Non Binary' || normalized === 'Non-Binary' || normalized === 'Non-binary') {
+      return 'Non-binary';
+    }
+    
+    return normalized;
+  };
+
   const genderData = useMemo(() => {
-    const genders = ['Male', 'Female', 'Non Binary', 'Prefer not to say'];
+    const genders = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
     return genders.map(gender => {
-      const count = users.filter(u => u.gender === gender).length;
+      const count = users.filter(u => normalizeGender(u.gender) === gender).length;
       const percentage = users.length > 0 ? (count / users.length) * 100 : 0;
       const color = gender === 'Male' ? 'bg-[#29B6F6]' : 
                    gender === 'Female' ? 'bg-[#E91E63]' : 
-                   gender === 'Non Binary' ? 'bg-[#9C27B0]' : 'bg-[#607D8B]';
+                   gender === 'Non-binary' ? 'bg-[#9C27B0]' : 'bg-[#607D8B]';
       
       return { gender, count, percentage, color };
     });

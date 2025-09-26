@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profanity Counter Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .test-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .test-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #0056b3;
+        }
+        .test-button.danger {
+            background: #dc3545;
+        }
+        .test-button.danger:hover {
+            background: #c82333;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .result.blocked {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .result.allowed {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .detected-words {
+            font-weight: bold;
+            color: #721c24;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+        }
+        .records-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .records-table th,
+        .records-table td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .records-table th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Profanity Counter Test</h1>
+        <p>This page tests the profanity counter functionality for the web CMS.</p>
+        
+        <div class="test-section">
+            <h3>Test Profanity Detection & Counting</h3>
+            <input type="text" id="testInput" class="test-input" placeholder="Enter text to test profanity detection and counting...">
+            <div>
+                <button class="test-button" onclick="testProfanityDetection()">Test Detection</button>
+                <button class="test-button" onclick="testWithCounting()">Test with Counting</button>
+                <button class="test-button" onclick="testCleanText()">Test Clean Text</button>
+            </div>
+            <div id="testResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Profanity Statistics</h3>
+            <button class="test-button" onclick="loadStats()">Load Statistics</button>
+            <button class="test-button" onclick="loadRecentRecords()">Load Recent Records</button>
+            <button class="test-button danger" onclick="resetCounters()">Reset All Counters</button>
+            <div id="statsResult"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Quick Tests</h3>
+            <button class="test-button" onclick="testProfanity()">Test Profanity</button>
+            <button class="test-button" onclick="testViolence()">Test Violence</button>
+            <button class="test-button" onclick="testHateSpeech()">Test Hate Speech</button>
+            <button class="test-button" onclick="testMultilingual()">Test Multilingual</button>
+            <div id="quickTestResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test Results Log</h3>
+            <div id="testLog" style="background: #f8f9fa; padding: 10px; border-radius: 4px; max-height: 300px; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import Firebase and services (this would normally be done via proper imports)
+        // For testing purposes, we'll simulate the services here
+        
+        class ProfanityFilterService {
+            static profanityWords = [
+                'fuck', 'shit', 'damn', 'bitch', 'asshole', 'bastard', 'crap', 'piss',
+                'motherfucker', 'cocksucker', 'whore', 'slut', 'cunt', 'dick', 'pussy',
+                'retard', 'faggot', 'nigger', 'nazi', 'hitler', 'kill yourself', 'kys',
+                'suicide', 'die', 'murder', 'rape', 'terrorist', 'bomb', 'weapon',
+                'puta', 'mierda', 'joder', 'cabrón', 'coño', 'gilipollas', 'hijo de puta',
+                'cao', 'ma de', 'sha bi', 'ben dan', 'hun dan', 'ta ma de',
+                'kuso', 'chikushou', 'shine', 'baka', 'aho', 'kisama', 'teme', 'yarou',
+                'sibal', 'ssibal', 'gaesaekki', 'jotgat', 'byeongsin', 'michin', 'nappeun',
+                'violence', 'harm', 'abuse', 'torture', 'blood', 'gore', 'mutilate',
+                'hate', 'racism', 'discrimination', 'supremacy', 'genocide',
+                'cocaine', 'heroin', 'meth', 'drugs', 'marijuana', 'weed', 'pot',
+                'porn', 'pornography', 'sex', 'sexual', 'nude', 'naked'
+            ];
+
+            static harmfulPatterns = [
+                /\b(kill|murder|die|death)\s+(you|yourself|him|her|them)\b/i,
+                /\b(go\s+)?kill\s+yourself\b/i,
+                /\bkys\b/i,
+                /\b(i\s+will|gonna|going\s+to)\s+(kill|murder|hurt)\b/i,
+                /\b(all\s+)?(jews|muslims|christians|blacks|whites|asians|latinos|hispanics)\s+(are|should)\s+(die|burn|suffer)\b/i,
+                /\b(hitler\s+was\s+right|nazi\s+germany|white\s+power|black\s+people\s+are)\b/i,
+                /\b(cut\s+yourself|harm\s+yourself|hurt\s+yourself)\b/i,
+                /\b(commit\s+suicide|end\s+your\s+life)\b/i,
+                /\b(bomb|terrorist|attack|explosion|weapon|gun|knife)\b/i
+            ];
+
+            static containsProfanity(text) {
+                if (!text || text.trim().length === 0) return false;
+                
+                const normalizedText = this.normalizeText(text);
+                
+                for (const profanityWord of this.profanityWords) {
+                    if (this.containsWord(normalizedText, profanityWord)) {
+                        return true;
+                    }
+                }
+                
+                for (const pattern of this.harmfulPatterns) {
+                    if (pattern.test(normalizedText)) {
+                        return true;
+                    }
+                }
+                
+                return false;
+            }
+
+            static getDetectedProfanity(text) {
+                const detected = [];
+                
+                if (!text || text.trim().length === 0) return detected;
+                
+                const normalizedText = this.normalizeText(text);
+                
+                for (const profanityWord of this.profanityWords) {
+                    if (this.containsWord(normalizedText, profanityWord)) {
+                        detected.push(profanityWord);
+                    }
+                }
+                
+                for (const pattern of this.harmfulPatterns) {
+                    const matches = normalizedText.match(pattern);
+                    if (matches) {
+                        detected.push(...matches);
+                    }
+                }
+                
+                return detected;
+            }
+
+            static normalizeText(text) {
+                return text
+                    .toLowerCase()
+                    .replace(/[^\w\s]/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+            }
+
+            static containsWord(text, word) {
+                const wordRegex = new RegExp(`\\b${this.escapeRegex(word)}\\b`, 'i');
+                return wordRegex.test(text);
+            }
+
+            static escapeRegex(string) {
+                return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+
+            static getErrorMessage(detectedContent) {
+                if (detectedContent.includes('kill') || 
+                    detectedContent.includes('murder') || 
+                    detectedContent.includes('die') ||
+                    detectedContent.includes('death') ||
+                    detectedContent.includes('kys')) {
+                    return 'Translation blocked: Text contains violent or threatening language that could harm others.';
+                }
+                
+                if (detectedContent.includes('terrorist') || 
+                    detectedContent.includes('bomb') || 
+                    detectedContent.includes('weapon') ||
+                    detectedContent.includes('attack')) {
+                    return 'Translation blocked: Text contains content related to violence or terrorism.';
+                }
+                
+                if (detectedContent.includes('hate') || 
+                    detectedContent.includes('racism') || 
+                    detectedContent.includes('nazi') ||
+                    detectedContent.includes('supremacy')) {
+                    return 'Translation blocked: Text contains hate speech or discriminatory language.';
+                }
+                
+                return 'Translation blocked: Text contains inappropriate language that violates our community guidelines.';
+            }
+
+            static validateContent(text, options = {}) {
+                if (!text || text.trim().length === 0) {
+                    return {
+                        isValid: false,
+                        reason: 'Text is empty',
+                        errorMessage: 'Please enter some text to translate.'
+                    };
+                }
+
+                if (this.containsProfanity(text)) {
+                    const detected = this.getDetectedProfanity(text);
+                    
+                    // Simulate profanity counting
+                    if (options.recordProfanity !== false) {
+                        simulateProfanityCounting(text, options.context || 'translation', options.language || 'unknown', detected);
+                    }
+                    
+                    return {
+                        isValid: false,
+                        reason: 'Inappropriate content',
+                        errorMessage: this.getErrorMessage(detected.join(', ')),
+                        detectedWords: detected
+                    };
+                }
+
+                return { isValid: true };
+            }
+        }
+
+        // Simulate profanity counting (in real app, this would call the actual service)
+        function simulateProfanityCounting(text, context, language, detectedWords) {
+            logResult(`Profanity detected and counted: ${detectedWords.length} words in ${context} (${language})`, 'error');
+            
+            // Simulate storing in localStorage for demo
+            const record = {
+                text: text.substring(0, 50) + (text.length > 50 ? '...' : ''),
+                context,
+                language,
+                detectedWords,
+                wordCount: detectedWords.length,
+                timestamp: new Date().toISOString(),
+                date: new Date().toISOString().split('T')[0]
+            };
+            
+            const records = JSON.parse(localStorage.getItem('profanity_records') || '[]');
+            records.unshift(record);
+            records.splice(50); // Keep only last 50 records
+            localStorage.setItem('profanity_records', JSON.stringify(records));
+            
+            // Update global counter
+            const globalCount = parseInt(localStorage.getItem('global_profanity_count') || '0');
+            localStorage.setItem('global_profanity_count', (globalCount + detectedWords.length).toString());
+        }
+
+        // Make services available globally
+        window.ProfanityFilterService = ProfanityFilterService;
+
+        function logResult(message, type = 'info') {
+            const log = document.getElementById('testLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+            logEntry.style.color = type === 'error' ? '#721c24' : type === 'success' ? '#155724' : '#495057';
+            logEntry.style.marginBottom = '5px';
+            log.appendChild(logEntry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function showResult(elementId, isValid, message, detectedWords = []) {
+            const result = document.getElementById(elementId);
+            result.style.display = 'block';
+            result.className = `result ${isValid ? 'allowed' : 'blocked'}`;
+            
+            let content = message;
+            if (!isValid && detectedWords.length > 0) {
+                content += `<br><span class="detected-words">Detected words: ${detectedWords.join(', ')}</span>`;
+            }
+            
+            result.innerHTML = content;
+        }
+
+        function testProfanityDetection() {
+            const input = document.getElementById('testInput').value;
+            if (!input.trim()) {
+                alert('Please enter some text to test.');
+                return;
+            }
+
+            const validation = ProfanityFilterService.validateContent(input, { recordProfanity: false });
+            showResult('testResult', validation.isValid, validation.errorMessage || 'Content is acceptable', validation.detectedWords);
+            
+            logResult(`Tested: "${input}" - ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`, validation.isValid ? 'success' : 'error');
+        }
+
+        function testWithCounting() {
+            const input = document.getElementById('testInput').value;
+            if (!input.trim()) {
+                alert('Please enter some text to test.');
+                return;
+            }
+
+            const validation = ProfanityFilterService.validateContent(input, { 
+                recordProfanity: true,
+                context: 'test',
+                language: 'en'
+            });
+            showResult('testResult', validation.isValid, validation.errorMessage || 'Content is acceptable', validation.detectedWords);
+            
+            logResult(`Tested with counting: "${input}" - ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`, validation.isValid ? 'success' : 'error');
+        }
+
+        function testCleanText() {
+            const testCases = [
+                'Hello, how are you today?',
+                'I would like to learn Spanish',
+                'Can you help me with my homework?',
+                'Good morning, have a nice day!',
+                'Thank you for your assistance'
+            ];
+            
+            let results = [];
+            testCases.forEach(text => {
+                const validation = ProfanityFilterService.validateContent(text, { recordProfanity: false });
+                results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
+                logResult(`Clean text test: "${text}" - ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`, validation.isValid ? 'success' : 'error');
+            });
+            
+            showResult('testResult', true, 'Clean text test completed. All should be allowed.<br>' + results.join('<br>'));
+        }
+
+        function testProfanity() {
+            const testCases = [
+                'This is a fucking test',
+                'What the hell are you doing?',
+                'You are such a stupid person',
+                'Go to hell you bastard'
+            ];
+            
+            let results = [];
+            testCases.forEach(text => {
+                const validation = ProfanityFilterService.validateContent(text, { recordProfanity: true, context: 'test', language: 'en' });
+                results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
+                logResult(`Profanity test: "${text}" - ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`, validation.isValid ? 'success' : 'error');
+            });
+            
+            showResult('quickTestResult', false, 'Profanity test completed. All should be blocked.<br>' + results.join('<br>'));
+        }
+
+        function testViolence() {
+            const testCases = [
+                'I will kill you',
+                'Go kill yourself',
+                'KYS',
+                'You should die',
+                'I hate you so much'
+            ];
+            
+            let results = [];
+            testCases.forEach(text => {
+                const validation = ProfanityFilterService.validateContent(text, { recordProfanity: true, context: 'test', language: 'en' });
+                results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
+                logResult(`Violence test: "${text}" - ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`, validation.isValid ? 'success' : 'error');
+            });
+            
+            showResult('quickTestResult', false, 'Violence test completed. All should be blocked.<br>' + results.join('<br>'));
+        }
+
+        function testHateSpeech() {
+            const testCases = [
+                'All black people are stupid',
+                'Hitler was right',
+                'White power',
+                'I hate all muslims'
+            ];
+            
+            let results = [];
+            testCases.forEach(text => {
+                const validation = ProfanityFilterService.validateContent(text, { recordProfanity: true, context: 'test', language: 'en' });
+                results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
+                logResult(`Hate speech test: "${text}" - ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`, validation.isValid ? 'success' : 'error');
+            });
+            
+            showResult('quickTestResult', false, 'Hate speech test completed. All should be blocked.<br>' + results.join('<br>'));
+        }
+
+        function testMultilingual() {
+            const testCases = [
+                'Eres un hijo de puta', // Spanish
+                'Ni ma de', // Chinese romanized
+                'Kuso yarou', // Japanese romanized
+                'Sibal gaesaekki' // Korean romanized
+            ];
+            
+            let results = [];
+            testCases.forEach(text => {
+                const validation = ProfanityFilterService.validateContent(text, { recordProfanity: true, context: 'test', language: 'multilingual' });
+                results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
+                logResult(`Multilingual test: "${text}" - ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`, validation.isValid ? 'success' : 'error');
+            });
+            
+            showResult('quickTestResult', false, 'Multilingual test completed. All should be blocked.<br>' + results.join('<br>'));
+        }
+
+        function loadStats() {
+            const globalCount = parseInt(localStorage.getItem('global_profanity_count') || '0');
+            const records = JSON.parse(localStorage.getItem('profanity_records') || '[]');
+            
+            const statsHtml = `
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-number">${globalCount}</div>
+                        <div class="stat-label">Total Profanity Count</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">${records.length}</div>
+                        <div class="stat-label">Total Records</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">${new Set(records.map(r => r.language)).size}</div>
+                        <div class="stat-label">Languages Detected</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">${new Set(records.map(r => r.context)).size}</div>
+                        <div class="stat-label">Contexts Detected</div>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('statsResult').innerHTML = statsHtml;
+            logResult('Statistics loaded from localStorage', 'success');
+        }
+
+        function loadRecentRecords() {
+            const records = JSON.parse(localStorage.getItem('profanity_records') || '[]');
+            
+            if (records.length === 0) {
+                document.getElementById('statsResult').innerHTML = '<p>No records found. Try testing some profanity first.</p>';
+                return;
+            }
+            
+            const tableHtml = `
+                <h4>Recent Profanity Records</h4>
+                <table class="records-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Context</th>
+                            <th>Language</th>
+                            <th>Word Count</th>
+                            <th>Detected Words</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${records.slice(0, 10).map(record => `
+                            <tr>
+                                <td>${record.date}</td>
+                                <td>${record.context}</td>
+                                <td>${record.language}</td>
+                                <td>${record.wordCount}</td>
+                                <td>${record.detectedWords.slice(0, 3).join(', ')}${record.detectedWords.length > 3 ? '...' : ''}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            document.getElementById('statsResult').innerHTML = tableHtml;
+            logResult(`Loaded ${records.length} recent records`, 'success');
+        }
+
+        function resetCounters() {
+            if (!confirm('Are you sure you want to reset all profanity counters? This action cannot be undone.')) {
+                return;
+            }
+            
+            localStorage.removeItem('profanity_records');
+            localStorage.removeItem('global_profanity_count');
+            document.getElementById('statsResult').innerHTML = '<p>All counters have been reset.</p>';
+            logResult('All profanity counters reset', 'success');
+        }
+
+        // Initialize
+        logResult('Profanity counter test page loaded successfully.');
+    </script>
+</body>
+</html>

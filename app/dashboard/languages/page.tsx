@@ -4,9 +4,12 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
+import AdminSidebar from '../../../src/components/AdminSidebar';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, getDocs, addDoc, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, getDoc, addDoc, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
 import { auth, db } from '../../../src/lib/firebase';
+import CustomDialog from '../../../src/components/CustomDialog';
+import { useCustomDialog } from '../../../src/hooks/useCustomDialog';
 
 type Language = {
   id: string;
@@ -148,6 +151,7 @@ export default function Languages() {
   const [isAddingLanguage, setIsAddingLanguage] = useState(false);
   const [newLanguage, setNewLanguage] = useState({ name: '', code: '', appCode: '' });
   const [error, setError] = useState('');
+  const { dialogState, showConfirm, hideDialog, showSuccess } = useCustomDialog();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const router = useRouter();
   
@@ -215,17 +219,60 @@ export default function Languages() {
 
   const handleDeleteLanguage = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent the card click event
-    if (confirm('Are you sure you want to delete this language? This will delete all associated data.')) {
+    showConfirm(
+      'Delete Language',
+      'Are you sure you want to delete this language? This will delete all associated data.',
+      () => performDeleteLanguage(id),
+      undefined,
+      'Delete',
+      'Cancel'
+    );
+  };
+
+  const performDeleteLanguage = async (id: string) => {
+    try {
+      setLoading(true);
+      
+      // Get language data before deletion for cascade delete
+      const languageDoc = await getDoc(doc(db, 'languages', id));
+      const languageData = languageDoc.data();
+      
+      // First, perform cascade deletion of all user assessments for this language
       try {
-        setLoading(true);
-        await deleteDoc(doc(db, 'languages', id));
-        await fetchLanguages();
-      } catch (err) {
-        console.error('Error deleting language:', err);
-        setError('Failed to delete language');
-      } finally {
-        setLoading(false);
+        const cascadeResponse = await fetch('/api/cascade-delete-content', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contentType: 'language',
+            contentId: id,
+            languageId: id,
+            level: 'all',
+            contentValue: languageData?.name
+          }),
+        });
+        
+        const cascadeResult = await cascadeResponse.json();
+        if (cascadeResult.success) {
+          console.log('Cascade deletion completed for language:', cascadeResult.details);
+        } else {
+          console.warn('Cascade deletion failed for language:', cascadeResult.error);
+        }
+      } catch (cascadeError) {
+        console.error('Error performing cascade deletion for language:', cascadeError);
+        // Continue with language deletion even if cascade fails
       }
+      
+      await deleteDoc(doc(db, 'languages', id));
+      await fetchLanguages();
+      
+      showSuccess('Language Deleted', 'Language and all related user assessments have been deleted successfully.');
+    } catch (err) {
+      console.error('Error deleting language:', err);
+      setError('Failed to delete language');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -238,59 +285,13 @@ export default function Languages() {
       {/* Mobile menu backdrop */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-20 lg:hidden"
+          className="fixed inset-0 bg-black/10 z-20 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
-      <div className={`fixed inset-y-0 left-0 z-30 w-56 xl:w-64 bg-[#0277BD] shadow-md text-white transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="flex items-center justify-between p-4 xl:p-6 border-b border-[#29B6F6]/30">
-          <Image 
-            src="/logo_txt.png" 
-            alt="PolyglAI" 
-            width={120} 
-            height={40} 
-            className="h-8 xl:h-10 w-auto"
-          />
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden p-2 rounded-md text-white hover:bg-[#29B6F6]/20"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
-            </svg>
-          </button>
-        </div>
-        <nav className="mt-6">
-          <div className="px-3 xl:px-4 space-y-1">
-            <Link href="/dashboard" className="flex items-center px-3 xl:px-4 py-2 xl:py-3 text-white hover:bg-[#29B6F6]/20 rounded-md">
-              <svg className="w-4 xl:w-5 h-4 xl:h-5 mr-2 xl:mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h7"></path>
-              </svg>
-              <span className="truncate text-sm xl:text-base">Dashboard</span>
-            </Link>
-            <Link href="/dashboard/languages" className="flex items-center px-3 xl:px-4 py-2 xl:py-3 bg-[#29B6F6]/20 rounded-md text-white">
-              <svg className="w-4 xl:w-5 h-4 xl:h-5 mr-2 xl:mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-              </svg>
-              <span className="truncate text-sm xl:text-base">Language Management</span>
-            </Link>
-            <Link href="/dashboard/word-trainer" className="flex items-center px-3 xl:px-4 py-2 xl:py-3 text-white hover:bg-[#29B6F6]/20 rounded-md">
-              <svg className="w-4 xl:w-5 h-4 xl:h-5 mr-2 xl:mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
-              </svg>
-              <span className="truncate text-sm xl:text-base">Word Trainer</span>
-            </Link>
-            <Link href="/dashboard/users" className="flex items-center px-3 xl:px-4 py-2 xl:py-3 text-white hover:bg-[#29B6F6]/20 rounded-md">
-              <svg className="w-4 xl:w-5 h-4 xl:h-5 mr-2 xl:mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
-              </svg>
-              <span className="truncate text-sm xl:text-base">Users</span>
-            </Link>
-          </div>
-        </nav>
-      </div>
+      <div className={`hidden lg:block`}><AdminSidebar active="languages" /></div>
 
       {/* Main Content */}
       <div className="flex-1 min-w-0 bg-gray-50">
@@ -444,6 +445,22 @@ export default function Languages() {
           )}
         </main>
       </div>
+      
+      {/* Custom Dialog */}
+      {dialogState.isOpen && dialogState.options && (
+        <CustomDialog
+          isOpen={dialogState.isOpen}
+          onClose={hideDialog}
+          title={dialogState.options.title}
+          message={dialogState.options.message}
+          type={dialogState.options.type}
+          onConfirm={dialogState.options.onConfirm}
+          onCancel={dialogState.options.onCancel}
+          confirmText={dialogState.options.confirmText}
+          cancelText={dialogState.options.cancelText}
+          showCancel={dialogState.options.type === 'confirm'}
+        />
+      )}
     </div>
   );
 } 

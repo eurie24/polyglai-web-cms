@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getApps, initializeApp, getApp } from 'firebase-admin/app';

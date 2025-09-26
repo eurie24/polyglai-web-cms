@@ -9,16 +9,14 @@ export interface WordTrainerQuestion {
   explanation?: string;
   pointsValue: number;
   language: string;
-  level: string;
 }
 
 export class WordTrainerService {
   /**
-   * Get questions for a specific language and level
+   * Get questions for a specific language
    */
   static async getQuestions(
     languageId: string,
-    level: string,
     limitCount: number = 10
   ): Promise<WordTrainerQuestion[]> {
     try {
@@ -26,7 +24,6 @@ export class WordTrainerService {
       const q = query(
         questionsRef,
         where('languageId', '==', languageId.toLowerCase()),
-        where('level', '==', level.toLowerCase()),
         limit(limitCount)
       );
       const snapshot = await getDocs(q);
@@ -42,7 +39,6 @@ export class WordTrainerService {
           explanation: data.explanation,
           pointsValue: data.pointsValue || 10,
           language: data.languageId || languageId,
-          level: data.level || level,
         });
       });
       
@@ -133,8 +129,7 @@ export class WordTrainerService {
           correctAnswer: "Hello",
           explanation: "Hello is the standard greeting in English.",
           pointsValue: 10,
-          languageId: "english",
-          level: "beginner"
+          languageId: "english"
         },
         {
           question: "Which word means 'good'?",
@@ -142,8 +137,7 @@ export class WordTrainerService {
           correctAnswer: "Good",
           explanation: "Good is the opposite of bad.",
           pointsValue: 10,
-          languageId: "english",
-          level: "beginner"
+          languageId: "english"
         },
         {
           question: "¿Cuál es la palabra en español para 'hello'?",
@@ -151,8 +145,7 @@ export class WordTrainerService {
           correctAnswer: "Hola",
           explanation: "Hola es el saludo estándar en español.",
           pointsValue: 10,
-          languageId: "spanish",
-          level: "beginner"
+          languageId: "spanish"
         }
       ];
 

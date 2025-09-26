@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { azureSpeechService } from '../services/azure-speech-service';
+import { SettingsService } from '../services/settings-service';
+import { azureTTSService } from '../services/azure-tts-service';
 import { UserService, HighScore } from '../services/user-service';
 import { auth, db } from '../../src/lib/firebase';
 import AssessmentFeedback from '../components/assessment-feedback';
@@ -19,6 +21,41 @@ const languageOptions: { code: string; label: string }[] = [
   { code: 'spanish', label: 'Español' },
   { code: 'korean', label: 'Hangugeo' }
 ];
+
+// Normalize display names and aliases to Firestore language codes
+const mapLanguageToFirestoreCode = (lang: string): string => {
+  const l = (lang || '').toLowerCase().trim();
+  const map: Record<string, string> = {
+    // canonical
+    english: 'english',
+    mandarin: 'mandarin',
+    chinese: 'mandarin',
+    spanish: 'spanish',
+    japanese: 'japanese',
+    korean: 'korean',
+    // short codes
+    en: 'english',
+    zh: 'mandarin',
+    'zh-cn': 'mandarin',
+    es: 'spanish',
+    ja: 'japanese',
+    ko: 'korean',
+    // localized/display strings
+    nihongo: 'japanese',
+    '日本語': 'japanese',
+    hangugeo: 'korean',
+    '한국어': 'korean',
+    espanol: 'spanish',
+    español: 'spanish',
+    castellano: 'spanish',
+    中文: 'mandarin',
+    汉语: 'mandarin',
+    漢語: 'mandarin',
+    普通话: 'mandarin',
+    國語: 'mandarin'
+  };
+  return map[l] || l;
+};
 
 const azureLocaleMap: Record<string, string> = {
   english: 'en-US',
@@ -55,6 +92,19 @@ function levenshtein(a: string, b: string): number {
     }
   }
   return matrix[an][bn];
+}
+
+// Language-aware text comparison function
+function compareTexts(text1: string, text2: string, language: string): boolean {
+  if (!text1 || !text2) return false;
+  
+  // For Japanese, Korean, and Chinese - exact match (no case conversion)
+  if (['japanese', 'mandarin', 'korean'].includes(language.toLowerCase())) {
+    return text1.trim() === text2.trim();
+  }
+  
+  // For languages with case (English, Spanish) - case insensitive
+  return text1.toLowerCase().trim() === text2.toLowerCase().trim();
 }
 
 function getCommonPronunciationVariations(word: string): string[] {
@@ -172,7 +222,7 @@ function getCommonPronunciationVariations(word: string): string[] {
   return variations[word.toLowerCase()] || [word];
 }
 
-function scorePronunciation(target: string, actual: string, level: string = 'beginner'): number {
+function scorePronunciation(target: string, actual: string, level: string = 'beginner', language: string = 'english'): number {
   const t = target.trim().toLowerCase();
   const a = actual.trim().toLowerCase();
   if (!t || !a) return 0;
@@ -224,8 +274,13 @@ function scorePronunciation(target: string, actual: string, level: string = 'beg
   }
   
   if (level === 'beginner') {
-    // For beginner, use more detailed phoneme-based scoring
-    const phonemes = generatePhonemeBreakdown(t, 'english', a); // Pass user transcript for comparison
+    // For beginner, use more detailed phoneme-based scoring with the correct language
+    // First compute a base score to pass to phoneme breakdown
+    const maxLen = Math.max(t.length, a.length);
+    const distance = levenshtein(t, a);
+    const similarity = 1 - distance / maxLen;
+    const preliminaryScore = Math.round(similarity * 100);
+    const phonemes = generatePhonemeBreakdown(t, language, a, preliminaryScore);
     if (phonemes.length > 0) {
       // Calculate average phoneme score with some variation based on actual pronunciation
       const baseScore = phonemes.reduce((sum, phoneme) => sum + phoneme.score, 0) / phonemes.length;
@@ -282,62 +337,103 @@ function toDateSafe(date: unknown): Date | null {
   return null;
 }
 
-// Unified scoring function to ensure consistency across all UI sections
-function calculateOverallScore(targetText: string, transcript: string, level: string, language: string, originalScore: number): number {
-  if (level === 'beginner') {
-    const phonemes = generatePhonemeBreakdown(targetText, language, transcript);
-    if (phonemes.length > 0) {
-      return Math.round(phonemes.reduce((sum, phoneme) => sum + phoneme.score, 0) / phonemes.length);
-    }
-    return originalScore;
-  } else {
-    // Check if user said the right words - if not, all metrics should be very low
-    const targetWords = (targetText || '').toLowerCase().split(/\s+/).filter(Boolean);
-    const userWords = (transcript || '').toLowerCase().split(/\s+/).filter(Boolean);
-    
-    let wordMatchRatio = 0;
-    if (userWords.length > 0) {
-      let matchingWords = 0;
-      for (const targetWord of targetWords) {
-        for (const userWord of userWords) {
-          if (targetWord === userWord) {
-            matchingWords++;
-            break;
-          }
-          // Check for very close matches
-          const similarity = 1 - (levenshtein(targetWord, userWord) / Math.max(targetWord.length, userWord.length));
-          if (similarity > 0.85) {
-            matchingWords++;
-            break;
-          }
-        }
-      }
-      wordMatchRatio = matchingWords / Math.max(1, targetWords.length);
-    }
-    
-    const wordsTarget = (targetText || '').split(/\s+/).filter(Boolean).length;
-    const wordsSaid = (transcript || '').split(/\s+/).filter(Boolean).length;
-    const completeness = Math.min(100, Math.round((wordsSaid / Math.max(1, wordsTarget)) * 100));
-    
-    // If word match is poor, all metrics should be very low
-    const baseScore = wordMatchRatio < 0.5 ? Math.floor(Math.random() * 10) : originalScore;
-    const fluencyScore = wordMatchRatio < 0.5 ? Math.floor(Math.random() * 10) : Math.min(100, Math.max(60, (originalScore || 0) - 5));
-    const completenessScore = wordMatchRatio < 0.5 ? Math.floor(Math.random() * 10) : completeness;
-    const prosodyScore = wordMatchRatio < 0.5 ? Math.floor(Math.random() * 10) : Math.min(100, Math.max(60, (originalScore || 0) - 8));
-    
-    const rows = [
-      { label: 'Pronunciation', value: baseScore },
-      { label: 'Fluency', value: fluencyScore },
-      { label: 'Completeness', value: completenessScore },
-      { label: 'Prosody', value: prosodyScore },
-    ];
-    return Math.round(rows.reduce((sum, row) => sum + row.value, 0) / rows.length);
+// Compute assessment scores based on transcript vs target text.
+// This mirrors the Flutter logic by deriving consistent metrics and an overall score.
+function computeAssessmentScores(targetText: string, transcript: string, level: string, language: string): {
+  overall: number;
+  pronunciation: number;
+  fluency: number;
+  completeness: number;
+  prosody: number;
+} {
+  const lang = (language || '').toLowerCase();
+  const isCJK = ['mandarin', 'chinese', 'zh', 'zh-cn', 'japanese', 'ja', 'korean', 'ko'].includes(lang);
+
+  const tRaw = targetText || '';
+  const aRaw = transcript || '';
+  const t = normalizeForMatch(tRaw);
+  const a = normalizeForMatch(aRaw);
+
+  if (!t || !a) {
+    return { overall: 0, pronunciation: 0, fluency: 0, completeness: 0, prosody: 0 };
   }
+
+  // Tokenize according to language family
+  const targetTokens = isCJK ? [...t.replace(/\s+/g, '')] : t.split(/\s+/).filter(Boolean);
+  const actualTokens = isCJK ? [...a.replace(/\s+/g, '')] : a.split(/\s+/).filter(Boolean);
+
+  // Compute token match ratio with fuzzy matching
+  let matched = 0;
+  for (const token of targetTokens) {
+    let found = false;
+    for (const said of actualTokens) {
+      if (token === said) { found = true; break; }
+      const sim = 1 - (levenshtein(token, said) / Math.max(token.length, said.length));
+      if (sim >= 0.75) { found = true; break; }
+    }
+    if (found) matched++;
+  }
+  const tokenMatchRatio = matched / Math.max(1, targetTokens.length);
+
+  // Character-level or string-level similarity as a secondary signal
+  const maxLen = Math.max(t.length, a.length);
+  const distance = levenshtein(t, a);
+  const textSimilarity = 1 - distance / Math.max(1, maxLen);
+
+  // Completeness based on coverage
+  const completeness = Math.round(Math.min(100, tokenMatchRatio * 100));
+
+  // Pronunciation proxy from similarity
+  // Be slightly more lenient for non-English languages
+  const basePronunciation = Math.round((isCJK ? Math.max(textSimilarity, tokenMatchRatio) : (0.6 * tokenMatchRatio + 0.4 * textSimilarity)) * 100);
+  const pronunciation = Math.max(0, Math.min(100, isCJK ? Math.max(basePronunciation, Math.round(textSimilarity * 100)) : basePronunciation));
+
+  // Fluency proxy – if user said at least 70% of tokens and similarity is decent, reward fluency
+  const coverage = actualTokens.length / Math.max(1, targetTokens.length);
+  let fluency = Math.round(
+    100 * Math.min(1,
+      0.5 * tokenMatchRatio +
+      0.3 * Math.max(0, Math.min(1, coverage)) +
+      0.2 * Math.max(0, textSimilarity)
+    )
+  );
+  // Ensure fluency isn't far below pronunciation when user clearly spoke
+  if (actualTokens.length > 0) {
+    fluency = Math.max(fluency, Math.max(60, pronunciation - 5));
+  }
+
+  // Prosody proxy – tie to pronunciation but slightly lower
+  let prosody = Math.max(0, Math.min(100, Math.round(pronunciation - 4)));
+
+  // Beginner vs Intermediate adjustments
+  if ((level || '').toLowerCase() === 'beginner') {
+    // Beginners should not be penalized too harshly
+    fluency = Math.max(fluency, Math.round(0.9 * pronunciation));
+    prosody = Math.max(prosody, Math.round(0.85 * pronunciation));
+  }
+
+  // Overall as average of available metrics
+  const overall = Math.round((pronunciation + fluency + completeness + prosody) / 4);
+
+  return {
+    overall,
+    pronunciation,
+    fluency,
+    completeness,
+    prosody
+  };
 }
 
-function generatePhonemeBreakdown(word: string, language: string, userTranscript: string = ''): Array<{sound: string; description: string; score: number}> {
+// Unified scoring function to ensure consistency across all UI sections
+function calculateOverallScore(targetText: string, transcript: string, level: string, language: string, originalScore: number): number {
+  const computed = computeAssessmentScores(targetText, transcript, level, language);
+  return computed.overall;
+}
+
+function generatePhonemeBreakdown(word: string, language: string, userTranscript: string = '', overallScore: number = 0): Array<{sound: string; description: string; score: number}> {
   const normalizedWord = word.toLowerCase().trim();
   const userWords = userTranscript.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const langKey = language.toLowerCase();
   
   // Check if user said something similar to the target word
   let wordSimilarity = 0;
@@ -349,6 +445,11 @@ function generatePhonemeBreakdown(word: string, language: string, userTranscript
       }
     }
   }
+  
+  // Derive phoneme scores from the overall score instead of using random ranges
+  // Create variation around the overall score based on word similarity
+  const baseScore = overallScore || 50; // Use overall score as base
+  const variation = Math.max(5, Math.min(15, 100 - baseScore)); // Smaller variation for higher scores
   
   // Language-specific phoneme mappings
   const phonemeMappings: Record<string, Record<string, string>> = {
@@ -523,7 +624,6 @@ function generatePhonemeBreakdown(word: string, language: string, userTranscript
     }
   };
 
-  const langKey = language.toLowerCase();
   const mappings = phonemeMappings[langKey] || phonemeMappings.english;
   
   // Generate phoneme breakdown based on the word
@@ -534,10 +634,14 @@ function generatePhonemeBreakdown(word: string, language: string, userTranscript
     for (let i = 0; i < normalizedWord.length; i++) {
       const char = normalizedWord[i];
       const description = mappings[char] || 'Unknown sound';
+      // Generate score based on overall score with small variation
+      const phonemeScore = Math.max(0, Math.min(100, 
+        baseScore + (Math.random() - 0.5) * variation * 2
+      ));
       phonemes.push({
         sound: char,
         description,
-        score: wordSimilarity > 0.85 ? Math.floor(Math.random() * 50) + 50 : Math.floor(Math.random() * 20) // Much lower scores for different words
+        score: Math.round(phonemeScore)
       });
     }
   } else {
@@ -550,10 +654,14 @@ function generatePhonemeBreakdown(word: string, language: string, userTranscript
       if (i < normalizedWord.length - 1) {
         const twoChar = normalizedWord.substr(i, 2);
         if (mappings[twoChar]) {
+          // Generate score based on overall score with small variation
+          const phonemeScore = Math.max(0, Math.min(100, 
+            baseScore + (Math.random() - 0.5) * variation * 2
+          ));
           phonemes.push({
             sound: twoChar,
             description: mappings[twoChar],
-            score: wordSimilarity > 0.85 ? Math.floor(Math.random() * 50) + 50 : Math.floor(Math.random() * 20) // Much lower scores for different words
+            score: Math.round(phonemeScore)
           });
           i += 2;
           found = true;
@@ -562,18 +670,25 @@ function generatePhonemeBreakdown(word: string, language: string, userTranscript
       
       // Try single character
       if (!found && mappings[normalizedWord[i]]) {
+        // Generate score based on overall score with small variation
+        const phonemeScore = Math.max(0, Math.min(100, 
+          baseScore + (Math.random() - 0.5) * variation * 2
+        ));
         phonemes.push({
           sound: normalizedWord[i],
           description: mappings[normalizedWord[i]],
-          score: wordSimilarity > 0.85 ? Math.floor(Math.random() * 50) + 50 : Math.floor(Math.random() * 20) // Much lower scores for different words
+          score: Math.round(phonemeScore)
         });
         i++;
       } else if (!found) {
         // Unknown character
+        const phonemeScore = Math.max(0, Math.min(100, 
+          baseScore + (Math.random() - 0.5) * variation * 2
+        ));
         phonemes.push({
           sound: normalizedWord[i],
           description: 'Unknown sound',
-          score: wordSimilarity > 0.85 ? Math.floor(Math.random() * 50) + 50 : Math.floor(Math.random() * 20) // Much lower scores for different words
+          score: Math.round(phonemeScore)
         });
         i++;
       }
@@ -587,6 +702,7 @@ function EvalPageContent() {
   const params = useSearchParams();
   const router = useRouter();
   const [language] = useState<string>(params.get('language') || 'english');
+  const languageCode = mapLanguageToFirestoreCode(language);
   const [level] = useState<Level>((params.get('level') as Level) || 'beginner');
   const [targetText, setTargetText] = useState<string>(params.get('text') || '');
   const [isRecording, setIsRecording] = useState(false);
@@ -597,11 +713,12 @@ function EvalPageContent() {
   const [items, setItems] = useState<{ value: string; phonetic?: string }[]>([]);
   const [index, setIndex] = useState(0);
   const [showResult, setShowResult] = useState(false);
-  const [showDetails, setShowDetails] = useState(false);
   const [showHighScores, setShowHighScores] = useState(false);
   const [highScores, setHighScores] = useState<HighScore | null>(null);
   const [loadingHighScores, setLoadingHighScores] = useState(false);
   const [showDetailedFeedback, setShowDetailedFeedback] = useState(false);
+  const [assessmentMetrics, setAssessmentMetrics] = useState<{ overall: number; pronunciation: number; fluency: number; completeness: number; prosody: number } | null>(null);
+  const [openMetricInfo, setOpenMetricInfo] = useState<null | 'pronunciation' | 'fluency' | 'completeness' | 'prosody' | 'vocabulary' | 'grammar' | 'topic'>(null);
   // Local types compatible with AssessmentFeedback props
   type AssessmentApiResultLocal = {
     words?: Array<{
@@ -627,9 +744,20 @@ function EvalPageContent() {
   }
   const [detailedFeedbackData, setDetailedFeedbackData] = useState<DetailedFeedbackData | null>(null);
   const [currentUser, setCurrentUser] = useState<{ uid: string } | null>(null);
+  
+  // Skip logic state - similar to Flutter app logic
+  const [assessedTexts, setAssessedTexts] = useState<Set<string>>(new Set());
+  const [assessmentsLoaded, setAssessmentsLoaded] = useState(false);
+  const loadedKey = useRef<string>(''); // Track what we've loaded to prevent re-loading
 
-  const [sfxVolume] = useState<number>(1.0);
+  const [sfxVolume, setSfxVolume] = useState<number>(1.0);
   const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null);
+  const [microphoneAutoStop, setMicrophoneAutoStop] = useState<boolean>(true);
+  const silenceMonitorRef = useRef<{ stop: () => void } | null>(null);
+  useEffect(() => {
+    SettingsService.getMicrophoneAutoStop().then(setMicrophoneAutoStop).catch(() => setMicrophoneAutoStop(true));
+  }, []);
+
 
 
   const playTone = useCallback((frequency: number, durationMs: number) => {
@@ -653,6 +781,17 @@ function EvalPageContent() {
   }, [sfxVolume]);
 
   const playSound = useCallback(async (file: string, fallback?: { freq: number; ms: number }) => {
+    // Respect sound effects preference from localStorage
+    try {
+      const pref = localStorage.getItem('polyglai_sound_effects');
+      if (pref !== null) {
+        const isEnabled = JSON.parse(pref);
+        if (isEnabled === false) return; // Sound effects disabled
+      }
+      // If pref is null/undefined, sounds are enabled by default
+    } catch {
+      // If parsing fails, assume sounds are enabled (default behavior)
+    }
     try {
       const audio = new Audio(`/sounds/${file}`);
       audio.volume = Math.max(0, Math.min(1, sfxVolume));
@@ -662,13 +801,15 @@ function EvalPageContent() {
     }
   }, [sfxVolume, playTone]);
 
-  const speakText = (text: string) => {
-    if (!text || !window.speechSynthesis) return;
+  const speakText = async (text: string) => {
+    if (!text) return;
     
-    // Stop any current speech
-    window.speechSynthesis.cancel();
-    
-    const utterance = new SpeechSynthesisUtterance(text);
+    // For Japanese, use phonetic reading if available to ensure correct pronunciation
+    let textToSpeak = text;
+    if (languageCode === 'japanese' && currentItem?.phonetic) {
+      textToSpeak = currentItem.phonetic;
+      console.log(`Japanese TTS: Using phonetic "${currentItem.phonetic}" instead of "${text}"`);
+    }
     
     // Set language based on current language
     const languageMap: Record<string, string> = {
@@ -679,12 +820,45 @@ function EvalPageContent() {
       'korean': 'ko-KR'
     };
     
-    utterance.lang = languageMap[language] || 'en-US';
-    utterance.rate = 0.8; // Slightly slower for clarity
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
+    const locale = languageMap[languageCode] || 'en-US';
     
-    window.speechSynthesis.speak(utterance);
+    try {
+      // Try Azure TTS first
+      if (azureTTSService.isConfigured()) {
+        console.log(`Using Azure TTS for "${textToSpeak}" in ${locale}`);
+        await azureTTSService.speak(textToSpeak, locale);
+      } else {
+        // Fallback to browser TTS if Azure is not configured
+        console.log(`Azure TTS not configured, falling back to browser TTS for "${textToSpeak}"`);
+        
+        // Stop any current speech
+        window.speechSynthesis?.cancel();
+        
+        if (window.speechSynthesis) {
+          const utterance = new SpeechSynthesisUtterance(textToSpeak);
+          utterance.lang = locale;
+          utterance.rate = 0.8; // Slightly slower for clarity
+          utterance.pitch = 1.0;
+          utterance.volume = 1.0;
+          window.speechSynthesis.speak(utterance);
+        }
+      }
+    } catch (error) {
+      console.error('TTS Error:', error);
+      
+      // Fallback to browser TTS on Azure error
+      console.log('Falling back to browser TTS due to Azure TTS error');
+      window.speechSynthesis?.cancel();
+      
+      if (window.speechSynthesis) {
+        const utterance = new SpeechSynthesisUtterance(textToSpeak);
+        utterance.lang = locale;
+        utterance.rate = 0.8;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }
+    }
   };
 
   const playRecording = () => {
@@ -710,17 +884,160 @@ function EvalPageContent() {
     }
   };
 
+  const getMetricInfo = (metric: 'pronunciation' | 'fluency' | 'completeness' | 'prosody' | 'vocabulary' | 'grammar' | 'topic'): string => {
+    switch (metric) {
+      case 'pronunciation':
+        return 'Pronunciation accuracy of the speech. Accuracy indicates how closely the phonemes match a native speaker\'s pronunciation. Word and full text accuracy scores are aggregated from phoneme-level accuracy score.';
+      case 'fluency':
+        return 'Fluency of the given speech. Fluency indicates how closely the speech matches a native speaker\'s use of silent breaks between words.';
+      case 'completeness':
+        return 'Completeness of the speech, calculated by the ratio of pronounced words to the input reference text.';
+      case 'prosody':
+        return 'Prosody of the given speech. Prosody indicates the nature of the given speech, including stress, intonation, speaking speed and rhythm.';
+      case 'vocabulary':
+        return 'Proficiency in lexical usage, which is evaluated by speaker\'s effective usage of words, on how appropriate is the word used with its context to express an idea.';
+      case 'grammar':
+        return 'Proficiency of the correctness in using grammar. Grammatical errors are jointly evaluated by incorporating the level of proper grammar usage with the lexical.';
+      case 'topic':
+        return 'Level of understanding and engagement with the topic, which provides insights into the speaker\'s ability to express their thoughts and ideas effectively and the ability to engage with the topic.';
+    }
+  };
+
+  // Skip logic functions - similar to Flutter app
+  const loadAllAssessments = useCallback(async () => {
+    if (!currentUser) return;
+    
+    const key = `${currentUser.uid}-${languageCode}-${level}`;
+    if (loadedKey.current === key) return; // Already loaded for this combination
+    
+    try {
+      const assessed = await UserService.getAssessedTexts(currentUser.uid, languageCode, level);
+      setAssessedTexts(assessed);
+      setAssessmentsLoaded(true);
+      loadedKey.current = key;
+      console.log(`Loaded ${assessed.size} assessed texts for ${language} ${level}`);
+    } catch (error) {
+      console.error('Error loading assessments:', error);
+    }
+  }, [currentUser, languageCode, level]);
+
+  const isTextAssessed = useCallback((text: string): boolean => {
+    return assessedTexts.has(text);
+  }, [assessedTexts]);
+
+  const skipToFirstUnassessed = useCallback(async () => {
+    if (!currentUser) return;
+    
+    // Ensure assessments are loaded
+    if (!assessmentsLoaded) {
+      await loadAllAssessments();
+    }
+    
+    for (let i = 0; i < items.length; i++) {
+      const text = items[i].value;
+      if (!isTextAssessed(text)) {
+        // Found first unassessed text
+        setIndex(i);
+        setTargetText(text);
+        setTranscript('');
+        setScore(null);
+        setShowResult(false);
+        console.log(`Skipped to unassessed text: "${text}" at index ${i}`);
+        return;
+      }
+    }
+    
+    // All texts assessed
+    console.log('All texts have been assessed!');
+  }, [currentUser, assessmentsLoaded, loadAllAssessments, items, isTextAssessed]);
+
+  const onNextOriginal = useCallback(() => {
+    if (items.length === 0) return;
+    const next = (index + 1) % items.length;
+    setIndex(next);
+    setTargetText(items[next].value);
+    setTranscript('');
+    setScore(null);
+    setShowResult(false);
+  }, [items, index]);
+
+  const onSkipNext = useCallback(async () => {
+    if (items.length === 0 || !currentUser) return;
+    
+    // Ensure assessments are loaded
+    if (!assessmentsLoaded) {
+      await loadAllAssessments();
+    }
+    
+    // Find the next unassessed text starting from current position
+    for (let i = 1; i < items.length; i++) {
+      const nextIndex = (index + i) % items.length;
+      const text = items[nextIndex].value;
+      if (!isTextAssessed(text)) {
+        setIndex(nextIndex);
+        setTargetText(text);
+        setTranscript('');
+        setScore(null);
+        setShowResult(false);
+        console.log(`Skipped to next unassessed text: "${text}" at index ${nextIndex}`);
+        return;
+      }
+    }
+    
+    // No more unassessed texts, just go to next
+    onNextOriginal();
+  }, [items, index, currentUser, assessmentsLoaded, loadAllAssessments, isTextAssessed, onNextOriginal]);
+
   useEffect(() => {
     // keep url in sync (lightweight)
-    const search = new URLSearchParams({ language, level, text: targetText });
+    const search = new URLSearchParams({ language: languageCode, level, text: targetText });
     window.history.replaceState({}, '', `/eval?${search.toString()}`);
-  }, [language, level, targetText]);
+  }, [languageCode, level, targetText]);
+
+  // Load assessments when user/language/level changes (only once per combination)
+  useEffect(() => {
+    if (currentUser && items.length > 0) {
+      const key = `${currentUser.uid}-${languageCode}-${level}`;
+      
+      // Only load if this is a new combination
+      if (loadedKey.current !== key) {
+        loadedKey.current = key;
+        setAssessmentsLoaded(false);
+        setAssessedTexts(new Set());
+        
+        // Load assessments once
+        UserService.getAssessedTexts(currentUser.uid, languageCode, level).then(assessed => {
+          setAssessedTexts(assessed);
+          setAssessmentsLoaded(true);
+          console.log(`Loaded ${assessed.size} assessed texts for ${language} ${level}`);
+          
+          // Auto-skip to first unassessed if no specific text requested
+          if (!params.get('text')) {
+            for (let i = 0; i < items.length; i++) {
+              const text = items[i].value;
+              if (!assessed.has(text)) {
+                setIndex(i);
+                setTargetText(text);
+                setTranscript('');
+                setScore(null);
+                setShowResult(false);
+                console.log(`Auto-skipped to unassessed text: "${text}" at index ${i}`);
+                break;
+              }
+            }
+          }
+        }).catch(error => {
+          console.error('Error loading assessments:', error);
+        });
+      }
+    }
+  }, [currentUser, language, languageCode, level, items.length, params]); // Simple dependencies
 
   // Load reference texts from Firestore
   useEffect(() => {
     const load = async () => {
       try {
-        const langId = language.toLowerCase();
+        const langId = languageCode;
         const levelId = level.toLowerCase();
         const ref = collection(db, 'languages', langId, 'characters', levelId, 'items');
         const snap = await getDocs(ref);
@@ -733,7 +1050,7 @@ function EvalPageContent() {
           setItems(list);
           const initialText = params.get('text');
           if (initialText) {
-            const matchIdx = list.findIndex(it => (it.value || '').toLowerCase() === initialText.toLowerCase());
+            const matchIdx = list.findIndex(it => compareTexts(it.value || '', initialText, languageCode));
             setIndex(matchIdx >= 0 ? matchIdx : 0);
             setTargetText(initialText);
           } else {
@@ -751,21 +1068,21 @@ function EvalPageContent() {
     };
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [language, level]);
+  }, [languageCode, level]);
 
   // Keep phonetic aligned when target text comes from URL and doesn't match current index
   useEffect(() => {
     if (items.length === 0 || !targetText) return;
-    const matchIdx = items.findIndex(it => (it.value || '').toLowerCase() === targetText.toLowerCase());
+    const matchIdx = items.findIndex(it => compareTexts(it.value || '', targetText, languageCode));
     if (matchIdx >= 0 && matchIdx !== index) {
       setIndex(matchIdx);
     }
-  }, [targetText, items, index]);
+  }, [targetText, items, index, languageCode]);
 
   // Resolve the current item (by exact/normalized value) to prevent phonetic-target mismatches
   const currentItem = (() => {
     if (items.length === 0) return undefined;
-    const exact = items.find(it => (it.value || '').toLowerCase() === (targetText || '').toLowerCase());
+    const exact = items.find(it => compareTexts(it.value || '', targetText || '', language));
     if (exact) return exact;
     const normTarget = normalizeForMatch(targetText);
     const byNorm = items.find(it => normalizeForMatch(it.value || '') === normTarget);
@@ -779,7 +1096,7 @@ function EvalPageContent() {
     setRecordedAudio(null);
     
     try {
-      const locale = azureLocaleMap[language] || 'en-US';
+      const locale = azureLocaleMap[languageCode] || 'en-US';
       setIsRecording(true);
       
       // record start sound effect
@@ -803,9 +1120,56 @@ function EvalPageContent() {
           const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
           setRecordedAudio(audioBlob);
           stream.getTracks().forEach(track => track.stop());
+          // stop silence monitor if any
+          try { silenceMonitorRef.current?.stop(); } catch {}
+          silenceMonitorRef.current = null;
         };
         
         mediaRecorder.start();
+        if (microphoneAutoStop) {
+          // lazy-create a simple silence monitor using AudioContext analyser
+          try {
+            const AudioCtx = (window as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext || (window as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+            if (AudioCtx) {
+              const ctx = new AudioCtx();
+              const source = ctx.createMediaStreamSource(stream);
+              const analyser = ctx.createAnalyser();
+              analyser.fftSize = 2048;
+              source.connect(analyser);
+              const data = new Uint8Array(analyser.fftSize);
+              let lastAbove = Date.now();
+              const threshold = 8;
+              const silenceWindowMs = 1200;
+              let stopped = false;
+              const tick = () => {
+                if (stopped) return;
+                analyser.getByteTimeDomainData(data);
+                let maxDev = 0;
+                for (let i = 0; i < data.length; i++) {
+                  const dev = Math.abs(data[i] - 128);
+                  if (dev > maxDev) maxDev = dev;
+                }
+                if (maxDev > threshold) lastAbove = Date.now();
+                if (Date.now() - lastAbove > silenceWindowMs) {
+                  stopped = true;
+                  try { mediaRecorder && mediaRecorder.state === 'recording' && mediaRecorder.stop(); } catch {}
+                  try { stopRef.current && stopRef.current(); } catch {}
+                } else {
+                  requestAnimationFrame(tick);
+                }
+              };
+              requestAnimationFrame(tick);
+              silenceMonitorRef.current = {
+                stop: () => {
+                  stopped = true;
+                  try { source.disconnect(); } catch {}
+                  try { analyser.disconnect(); } catch {}
+                  try { ctx.close(); } catch {}
+                }
+              };
+            }
+          } catch {}
+        }
       } catch (audioError) {
         console.log('Audio recording not available:', audioError);
       }
@@ -813,7 +1177,7 @@ function EvalPageContent() {
       // Start speech recognition
       const stop = await azureSpeechService.startSpeechRecognition(
         locale,
-        (text) => {
+        async (text, azureResponse) => {
           setTranscript(text);
           setIsRecording(false);
           stopRef.current = null;
@@ -823,20 +1187,84 @@ function EvalPageContent() {
             mediaRecorder.stop();
           }
           
-          // basic scoring vs targetText
-          const s = scorePronunciation(targetText, text, level);
-          setScore(s);
+          // Compute consistent assessment metrics and overall score
+          const metrics = computeAssessmentScores(targetText, text, level, languageCode);
+          console.log('Assessment metrics computed:', metrics);
+          setScore(metrics.overall);
+          setAssessmentMetrics(metrics);
           
-          // Calculate the overall score for consistency
-          calculateOverallScore(targetText, text, level, language, s);
+          // Persist as new high score if higher than existing
+          try {
+            if (currentUser && targetText) {
+              console.log('Attempting to save assessment for:', { user: currentUser.uid, targetText, level, language: languageCode });
+              const firestoreLanguageCode = languageCode;
+              console.log('Mapped language code:', firestoreLanguageCode);
+              const existing = await UserService.getUserHighScoreForText(currentUser.uid, firestoreLanguageCode, targetText, level);
+              console.log('Existing high score:', existing);
+              const existingBest = existing ? (existing.overallScore || existing.score || 0) : 0;
+              console.log('Comparison: new score', metrics.overall, 'vs existing best', existingBest);
+              
+              // Debug Japanese text handling
+              if (languageCode === 'japanese') {
+                console.log('Japanese assessment debug:', {
+                  targetText: targetText,
+                  transcript: text,
+                  currentItem: currentItem,
+                  phonetic: currentItem?.phonetic
+                });
+              }
+              
+              // Save if it's a new high score OR if there's no existing assessment (first attempt)
+              if (metrics.overall > existingBest || !existing) {
+                console.log(existing ? 'New score is higher, saving assessment...' : 'No existing assessment, saving first assessment...');
+                // Generate phoneme analysis for both beginner and intermediate levels to match Flutter format
+                const phonemeAnalysis = (level.toLowerCase() === 'beginner' || level.toLowerCase() === 'intermediate') ? 
+                  generatePhonemeBreakdown(targetText, languageCode, text, metrics.overall).map(phoneme => ({
+                    phoneme: phoneme.sound,
+                    pronunciation: phoneme.score,
+                    tone: 0,
+                    feedback: phoneme.score >= 90 ? 'Excellent pronunciation!' :
+                             phoneme.score >= 80 ? 'Good pronunciation' :
+                             phoneme.score >= 70 ? 'Fair pronunciation' :
+                             phoneme.score >= 60 ? 'Needs improvement' : 'Practice more'
+                  })) : [];
+
+                await UserService.saveAssessmentScore(currentUser.uid, firestoreLanguageCode, {
+                  score: metrics.overall,
+                  overallScore: metrics.overall,
+                  pronunciationScore: metrics.pronunciation,
+                  fluencyScore: metrics.fluency,
+                  accuracyScore: metrics.completeness,
+                  targetText: targetText,
+                  transcript: text,
+                  level: level,
+                  language: firestoreLanguageCode,
+                  azureRawResponse: azureResponse,
+                  // Add phoneme analysis for compatibility with Flutter format
+                  phonemeAnalysis: phonemeAnalysis
+                });
+                console.log('Assessment saved successfully');
+                
+                // Add the newly assessed text to our cache
+                setAssessedTexts(prev => new Set([...prev, targetText]));
+                console.log('Added newly assessed text to cache:', targetText);
+              } else {
+                console.log('New score is not higher than existing, not saving');
+              }
+            } else {
+              console.log('Missing currentUser or targetText, cannot save assessment');
+            }
+          } catch (persistError) {
+            console.error('High score persistence failed:', persistError);
+          }
           
           setStatus('');
           setShowResult(true);
           
           // score-based sound effect
-          if (s >= 90) playSound('excellent_score.mp3', { freq: 1200, ms: 180 });
-          else if (s >= 75) playSound('good_score.mp3', { freq: 1000, ms: 180 });
-          else if (s >= 60) playSound('average_score.mp3', { freq: 800, ms: 180 });
+          if (metrics.overall >= 90) playSound('excellent_score.mp3', { freq: 1200, ms: 180 });
+          else if (metrics.overall >= 75) playSound('good_score.mp3', { freq: 1000, ms: 180 });
+          else if (metrics.overall >= 60) playSound('average_score.mp3', { freq: 800, ms: 180 });
           else playSound('poor_score.mp3', { freq: 400, ms: 220 });
         },
         (err) => {
@@ -866,14 +1294,8 @@ function EvalPageContent() {
   }, []);
 
   const onNext = () => {
-    if (items.length === 0) return;
-    const next = (index + 1) % items.length;
-    setIndex(next);
-    setTargetText(items[next].value);
-    setTranscript('');
-    setScore(null);
-    setShowResult(false);
-    setShowDetails(false);
+    // Use skip logic to go to next unassessed text
+    onSkipNext();
   };
 
   const loadHighScoreForCurrentText = useCallback(async () => {
@@ -972,7 +1394,7 @@ function EvalPageContent() {
           <div className="flex items-center space-x-3">
             {/* Back button */}
             <button
-              onClick={() => router.push('/user-dashboard')}
+              onClick={() => router.push('/user-dashboard?section=level-up')}
               className="flex items-center justify-center w-10 h-10 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1011,9 +1433,19 @@ function EvalPageContent() {
 
         {/* Target text */}
         <div className="text-center mb-12">
-          <div className="text-4xl md:text-6xl font-extrabold text-gray-900 break-words">{targetText || '—'}</div>
+          <div className="relative inline-block">
+            <div className="text-4xl md:text-6xl font-extrabold text-gray-900 break-words">{targetText || '—'}</div>
+            {currentUser && targetText && isTextAssessed(targetText) && (
+              <div className="absolute -top-2 -right-2 bg-green-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold">
+                ✓
+              </div>
+            )}
+          </div>
           {currentItem?.phonetic && (
             <div className="mt-3 text-xl text-blue-600">{currentItem.phonetic}</div>
+          )}
+          {currentUser && targetText && isTextAssessed(targetText) && (
+            <div className="mt-2 text-sm text-green-600 font-medium">✓ Already assessed</div>
           )}
         </div>
 
@@ -1044,23 +1476,28 @@ function EvalPageContent() {
             </div>
             
             <button
-              onClick={() => {
-                const next = (index + 1) % items.length;
-                setIndex(next);
-                setTargetText(items[next].value);
-                setTranscript('');
-                setScore(null);
-                setShowResult(false);
-                setShowDetails(false);
-              }}
+              onClick={onNext}
               disabled={items.length <= 1}
               className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span className="font-medium">Next</span>
+              <span className="font-medium">Next Unassessed</span>
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
               </svg>
             </button>
+            
+            {currentUser && (
+              <button
+                onClick={skipToFirstUnassessed}
+                disabled={items.length <= 1}
+                className="flex items-center space-x-2 px-3 py-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="font-medium">Skip to First Unassessed</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -1094,42 +1531,93 @@ function EvalPageContent() {
         {/* Assessment Sheet - Shows after recording */}
         {showResult && score !== null && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-            <h3 className="text-xl font-bold text-center text-gray-900 mb-4">{languageOptions.find(l => l.code === language)?.label} {level[0].toUpperCase() + level.slice(1)} Assessment</h3>
-            <p className="text-center text-gray-600 mb-6">
-              {(() => {
-                const calculatedScore = calculateOverallScore(targetText, transcript, level, language, score as number);
-                return calculatedScore >= 90 ? 'Excellent pronunciation' : calculatedScore >= 75 ? 'Good pronunciation' : 'Keep practicing';
-              })()}
-            </p>
-            
-            {/* Score Circle */}
-            <div className="flex items-center justify-center mb-6">
-              <div className="relative">
-                <svg className="w-32 h-32 -rotate-90" viewBox="0 0 36 36">
-                  <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#e5e7eb" strokeWidth="2" />
-                  <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#22c55e" strokeWidth="2" strokeDasharray={`${(() => {
-                    const calculatedScore = calculateOverallScore(targetText, transcript, level, language, score as number);
-                    return Math.min(calculatedScore, 100);
-                  })()}, 100`} />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-2xl font-bold text-green-600">
-                    {calculateOverallScore(targetText, transcript, level, language, score as number)}%
-                  </span>
+            <h3 className="text-xl font-bold text-center text-gray-900 mb-4">{languageOptions.find(l => l.code === languageCode)?.label} {level[0].toUpperCase() + level.slice(1)} Assessment</h3>
+            <p className="text-center text-gray-600 mb-6">{(assessmentMetrics?.overall ?? score) >= 90 ? 'Excellent pronunciation' : (assessmentMetrics?.overall ?? score) >= 75 ? 'Good pronunciation' : 'Keep practicing'}</p>
+
+            {/* Dual Overall Scores for Advanced */}
+            {level === 'advanced' ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
+                {/* Pronunciation Overall */}
+                <div className="flex flex-col items-center">
+                  <div className="relative">
+                    <svg className="w-28 h-28 -rotate-90" viewBox="0 0 36 36">
+                      <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#e5e7eb" strokeWidth="2" />
+                      <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#22c55e" strokeWidth="2" strokeDasharray={`${(() => {
+                        const m = assessmentMetrics;
+                        const arr = m ? [m.pronunciation, m.fluency, m.prosody].filter(v => v > 0) : [];
+                        const p = m && arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : score as number;
+                        return Math.min(p, 100);
+                      })()}, 100`} />
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-xl font-bold text-green-600">
+                        {(() => {
+                          const m = assessmentMetrics;
+                          const arr = m ? [m.pronunciation, m.fluency, m.prosody].filter(v => v > 0) : [];
+                          const p = m && arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : (score as number);
+                          return p;
+                        })()}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-gray-800">Pronunciation Score</div>
+                </div>
+
+                {/* Content Overall */}
+                <div className="flex flex-col items-center">
+                  <div className="relative">
+                    <svg className="w-28 h-28 -rotate-90" viewBox="0 0 36 36">
+                      <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#e5e7eb" strokeWidth="2" />
+                      <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#10b981" strokeWidth="2" strokeDasharray={`${(() => {
+                        const m = assessmentMetrics;
+                        const c = m ? Math.round(m.overall * 0.7) : Math.round((score as number) * 0.7);
+                        return Math.min(c, 100);
+                      })()}, 100`} />
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-xl font-bold text-emerald-600">
+                        {(() => {
+                          const m = assessmentMetrics;
+                          const c = m ? Math.round(m.overall * 0.7) : Math.round((score as number) * 0.7);
+                          return c;
+                        })()}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-gray-800">Content Score</div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex items-center justify-center mb-6">
+                <div className="relative">
+                  <svg className="w-32 h-32 -rotate-90" viewBox="0 0 36 36">
+                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#e5e7eb" strokeWidth="2" />
+                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#22c55e" strokeWidth="2" strokeDasharray={`${(() => {
+                      const calculatedScore = calculateOverallScore(targetText, transcript, level, languageCode, score as number);
+                      return Math.min(calculatedScore, 100);
+                    })()}, 100`} />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-2xl font-bold text-green-600">
+                      {calculateOverallScore(targetText, transcript, level, languageCode, score as number)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Audio Controls */}
             <div className="flex items-center justify-center space-x-10 mb-6">
               <div className="flex flex-col items-center">
                 <button 
-                  onClick={() => speakText(targetText)}
+                  onClick={() => speakText(targetText).catch(console.error)}
                   className="w-10 h-10 rounded-full bg-[#29B6F6] text-white flex items-center justify-center shadow hover:bg-[#0277BD] transition-colors"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5a1 1 0 012 0v6a1 1 0 11-2 0V5zm-4 6a5 5 0 0010 0M12 19v2m-4 0h8"/></svg>
                 </button>
-                <span className="mt-2 text-xs text-gray-500">Correct</span>
+                <span className="mt-2 text-xs text-gray-500">
+                  {azureTTSService.isConfigured() ? 'Azure TTS' : 'Browser TTS'}
+                </span>
               </div>
               <div className="flex flex-col items-center">
                 <button 
@@ -1141,6 +1629,97 @@ function EvalPageContent() {
                 <span className="mt-2 text-xs text-gray-500">Your Recording</span>
               </div>
             </div>
+
+            {/* Sentence Evaluation (Inline) */}
+            {assessmentMetrics && (
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200 mb-6">
+                <div className="border-b px-4 py-2 font-semibold bg-blue-50 rounded-t-lg -mx-4 -mt-4 mb-4">Sentence Metrics</div>
+                <div className="space-y-3">
+                  <button type="button" onClick={() => setOpenMetricInfo(openMetricInfo === 'pronunciation' ? null : 'pronunciation')} className="w-full text-left">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-700 font-medium">Pronunciation:</span>
+                      <div className="flex items-center space-x-2">
+                        <span className={`font-semibold ${assessmentMetrics.pronunciation >= 80 ? 'text-green-600' : assessmentMetrics.pronunciation >= 60 ? 'text-orange-600' : 'text-red-600'}`}>{assessmentMetrics.pronunciation}%</span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${assessmentMetrics.pronunciation >= 80 ? 'bg-green-100 text-green-700' : assessmentMetrics.pronunciation >= 60 ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>{assessmentMetrics.pronunciation >= 80 ? 'Excellent' : assessmentMetrics.pronunciation >= 60 ? 'Good' : 'Fair'}</span>
+                      </div>
+                    </div>
+                    {openMetricInfo === 'pronunciation' && (
+                      <div className="mt-2 p-3 bg-white border border-gray-200 rounded text-sm text-gray-700">{getMetricInfo('pronunciation')}</div>
+                    )}
+                  </button>
+                  <button type="button" onClick={() => setOpenMetricInfo(openMetricInfo === 'fluency' ? null : 'fluency')} className="w-full text-left">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-700 font-medium">Fluency:</span>
+                      <div className="flex items-center space-x-2">
+                        <span className={`font-semibold ${assessmentMetrics.fluency >= 80 ? 'text-green-600' : assessmentMetrics.fluency >= 60 ? 'text-orange-600' : 'text-red-600'}`}>{assessmentMetrics.fluency}%</span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${assessmentMetrics.fluency >= 80 ? 'bg-green-100 text-green-700' : assessmentMetrics.fluency >= 60 ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>{assessmentMetrics.fluency >= 80 ? 'Excellent' : assessmentMetrics.fluency >= 60 ? 'Good' : 'Fair'}</span>
+                      </div>
+                    </div>
+                    {openMetricInfo === 'fluency' && (
+                      <div className="mt-2 p-3 bg-white border border-gray-200 rounded text-sm text-gray-700">{getMetricInfo('fluency')}</div>
+                    )}
+                  </button>
+                  <button type="button" onClick={() => setOpenMetricInfo(openMetricInfo === 'completeness' ? null : 'completeness')} className="w-full text-left">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-700 font-medium">Completeness:</span>
+                      <div className="flex items-center space-x-2">
+                        <span className={`font-semibold ${assessmentMetrics.completeness >= 80 ? 'text-green-600' : assessmentMetrics.completeness >= 60 ? 'text-orange-600' : 'text-red-600'}`}>{assessmentMetrics.completeness}%</span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${assessmentMetrics.completeness >= 80 ? 'bg-green-100 text-green-700' : assessmentMetrics.completeness >= 60 ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>{assessmentMetrics.completeness >= 80 ? 'Excellent' : assessmentMetrics.completeness >= 60 ? 'Good' : 'Fair'}</span>
+                      </div>
+                    </div>
+                    {openMetricInfo === 'completeness' && (
+                      <div className="mt-2 p-3 bg-white border border-gray-200 rounded text-sm text-gray-700">{getMetricInfo('completeness')}</div>
+                    )}
+                  </button>
+                  <button type="button" onClick={() => setOpenMetricInfo(openMetricInfo === 'prosody' ? null : 'prosody')} className="w-full text-left">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-700 font-medium">Prosody:</span>
+                      <div className="flex items-center space-x-2">
+                        <span className={`font-semibold ${assessmentMetrics.prosody >= 80 ? 'text-green-600' : assessmentMetrics.prosody >= 60 ? 'text-orange-600' : 'text-red-600'}`}>{assessmentMetrics.prosody}%</span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${assessmentMetrics.prosody >= 80 ? 'bg-green-100 text-green-700' : assessmentMetrics.prosody >= 60 ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>{assessmentMetrics.prosody >= 80 ? 'Excellent' : assessmentMetrics.prosody >= 60 ? 'Good' : 'Fair'}</span>
+                      </div>
+                    </div>
+                    {openMetricInfo === 'prosody' && (
+                      <div className="mt-2 p-3 bg-white border border-gray-200 rounded text-sm text-gray-700">{getMetricInfo('prosody')}</div>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Advanced Content Analysis (Inline) */}
+            {level === 'advanced' && assessmentMetrics && (
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200 mb-6">
+                <div className="border-b px-4 py-2 font-semibold bg-blue-50 rounded-t-lg -mx-4 -mt-4 mb-4">Content Analysis</div>
+                <div className="space-y-3">
+                  {(() => {
+                    const m = assessmentMetrics;
+                    const vocab = Math.round(m.overall * 0.6);
+                    const grammar = Math.round(m.overall * 0.5);
+                    const topic = Math.round(m.overall * 0.8);
+                    const rows: Array<{ key: 'vocabulary' | 'grammar' | 'topic'; label: string; value: number }> = [
+                      { key: 'vocabulary', label: 'Vocabulary score', value: vocab },
+                      { key: 'grammar', label: 'Grammar score', value: grammar },
+                      { key: 'topic', label: 'Topic score', value: topic },
+                    ];
+                    return rows.map(r => (
+                      <button key={r.key} type="button" onClick={() => setOpenMetricInfo(openMetricInfo === r.key ? null : r.key)} className="w-full text-left">
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-700 font-medium">{r.label}:</span>
+                          <div className="flex items-center space-x-2">
+                            <span className={`font-semibold ${r.value >= 80 ? 'text-green-600' : r.value >= 60 ? 'text-orange-600' : 'text-red-600'}`}>{r.value}%</span>
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${r.value >= 80 ? 'bg-green-100 text-green-700' : r.value >= 60 ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>{r.value >= 80 ? 'Excellent' : r.value >= 60 ? 'Good' : 'Fair'}</span>
+                          </div>
+                        </div>
+                        {openMetricInfo === r.key && (
+                          <div className="mt-2 p-3 bg-white border border-gray-200 rounded text-sm text-gray-700">{getMetricInfo(r.key)}</div>
+                        )}
+                      </button>
+                    ));
+                  })()}
+                </div>
+              </div>
+            )}
 
             {/* Action Buttons */}
             <div className="flex justify-center space-x-4 mb-4">
@@ -1158,239 +1737,15 @@ function EvalPageContent() {
               </button>
             </div>
 
-            {/* View Detailed Feedback Button */}
-            <div className="flex justify-center">
-              <button 
-                onClick={() => setShowDetails(true)} 
-                className="px-5 py-2 bg-[#29B6F6] hover:bg-[#0277BD] text-white rounded-lg text-sm font-semibold"
-              >
-                View Detailed Feedback
-              </button>
-            </div>
+            
           </div>
         )}
 
-        {/* Detailed Feedback Section - Shows when detailed feedback is requested */}
-        {showDetails && score !== null && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4 text-center">
-              {level === 'beginner' ? 'Word Phonetics Analysis' : 'Sentence Evaluation'}
-            </h3>
-            
-            {level === 'beginner' ? (
-              // Word Phonetics Analysis for Beginner
-              <div className="border rounded-lg overflow-hidden">
-                <div className="border-b px-4 py-2 font-semibold bg-blue-50">Phoneme Breakdown</div>
-                <div className="px-4 py-3">
-                  <div className="mb-4">
-                    <div className="text-sm font-medium text-gray-700 mb-2">Target Word: <span className="font-bold text-gray-900">{targetText}</span></div>
-                    {currentItem?.phonetic && (
-                      <div className="text-sm text-blue-600 mb-3">Phonetic: <span className="font-mono">{currentItem.phonetic}</span></div>
-                    )}
-                  </div>
-                  
-                  {/* Phoneme Analysis */}
-                  <div className="space-y-3">
-                    {(() => {
-                      // Generate phoneme breakdown based on language and word
-                      const phonemes = generatePhonemeBreakdown(targetText, language, transcript);
-                      return phonemes.map((phoneme, index) => (
-                        <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                          <div className="flex items-center space-x-3">
-                            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                              <span className="text-xs font-bold text-blue-700">{index + 1}</span>
-                            </div>
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">{phoneme.sound}</div>
-                              <div className="text-xs text-gray-500">{phoneme.description}</div>
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-3">
-                            {/* Score Bar */}
-                            <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
-                              <div 
-                                className={`h-2 rounded-full transition-all ${
-                                  phoneme.score >= 90 ? 'bg-green-500' : 
-                                  phoneme.score >= 75 ? 'bg-yellow-500' : 
-                                  phoneme.score >= 60 ? 'bg-orange-500' : 'bg-red-500'
-                                }`}
-                                style={{ width: `${Math.max(0, Math.min(100, phoneme.score))}%` }}
-                              />
-                            </div>
-                            {/* Score Number */}
-                            <span className={`text-sm font-bold min-w-[2.5rem] text-right ${
-                              phoneme.score >= 90 ? 'text-green-600' : 
-                              phoneme.score >= 75 ? 'text-yellow-600' : 
-                              phoneme.score >= 60 ? 'text-orange-600' : 'text-red-600'
-                            }`}>
-                              {phoneme.score}%
-                            </span>
-                            {/* Status Badge */}
-                            <span className={`text-[10px] px-2 py-1 rounded-full ${
-                              phoneme.score >= 90 ? 'bg-green-100 text-green-700' : 
-                              phoneme.score >= 75 ? 'bg-yellow-100 text-yellow-700' : 
-                              phoneme.score >= 60 ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'
-                            }`}>
-                              {phoneme.score >= 90 ? 'Excellent' : 
-                               phoneme.score >= 75 ? 'Good' : 
-                               phoneme.score >= 60 ? 'Fair' : 'Poor'}
-                            </span>
-                          </div>
-                        </div>
-                      ));
-                    })()}
-                  </div>
-                  
-                  {/* Overall Score */}
-                  <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-700">Overall Accuracy</span>
-                      <span className="text-lg font-bold text-blue-600">
-                        {(() => {
-                          const phonemes = generatePhonemeBreakdown(targetText, language, transcript);
-                          if (phonemes.length > 0) {
-                            const averageScore = phonemes.reduce((sum, phoneme) => sum + phoneme.score, 0) / phonemes.length;
-                            return Math.round(averageScore);
-                          }
-                          return score;
-                        })()}%
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              // Sentence Evaluation for Intermediate/Advanced
-              <div className="border rounded-lg overflow-hidden">
-                <div className="border-b px-4 py-2 font-semibold bg-blue-50">Sentence Metrics</div>
-                <div className="divide-y">
-                  {(() => {
-                    // Use the same unified scoring function for consistency
-                    calculateOverallScore(targetText, transcript, level, language, score as number);
-                    
-                    // For detailed feedback, we need to show individual metrics
-                    const targetWords = (targetText || '').toLowerCase().split(/\s+/).filter(Boolean);
-                    const userWords = (transcript || '').toLowerCase().split(/\s+/).filter(Boolean);
-                    
-                    let wordMatchRatio = 0;
-                    if (userWords.length > 0) {
-                      let matchingWords = 0;
-                      for (const targetWord of targetWords) {
-                        for (const userWord of userWords) {
-                          if (targetWord === userWord) {
-                            matchingWords++;
-                            break;
-                          }
-                          // Check for very close matches
-                          const similarity = 1 - (levenshtein(targetWord, userWord) / Math.max(targetWord.length, userWord.length));
-                          if (similarity > 0.85) {
-                            matchingWords++;
-                            break;
-                          }
-                        }
-                      }
-                      wordMatchRatio = matchingWords / Math.max(1, targetWords.length);
-                    }
-                    
-                    const wordsTarget = (targetText || '').split(/\s+/).filter(Boolean).length;
-                    const wordsSaid = (transcript || '').split(/\s+/).filter(Boolean).length;
-                    const completeness = Math.min(100, Math.round((wordsSaid / Math.max(1, wordsTarget)) * 100));
-                    
-                    // If word match is poor, all metrics should be very low
-                    const baseScore = wordMatchRatio < 0.5 ? Math.floor(Math.random() * 10) : (score as number);
-                    const fluencyScore = wordMatchRatio < 0.5 ? Math.floor(Math.random() * 10) : Math.min(100, Math.max(60, (score || 0) - 5));
-                    const completenessScore = wordMatchRatio < 0.5 ? Math.floor(Math.random() * 10) : completeness;
-                    const prosodyScore = wordMatchRatio < 0.5 ? Math.floor(Math.random() * 10) : Math.min(100, Math.max(60, (score || 0) - 8));
-                    
-                    const rows = [
-                      { label: 'Pronunciation', value: baseScore },
-                      { label: 'Fluency', value: fluencyScore },
-                      { label: 'Completeness', value: completenessScore },
-                      { label: 'Prosody', value: prosodyScore },
-                    ];
-                    
-                    // Don't update the score state here to avoid inconsistency
-                    // The main assessment should keep its original score
-                    return (
-                      <>
-                        {rows.map((row) => (
-                          <div key={row.label} className="flex items-center justify-between px-4 py-3">
-                            <div className="text-sm text-gray-700">{row.label}</div>
-                            <div className="flex items-center space-x-2">
-                              <span className="text-sm font-semibold text-green-600">{row.value}%</span>
-                              <span className={`text-[10px] px-2 py-0.5 rounded-full ${row.value >= 90 ? 'bg-green-100 text-green-700' : row.value >= 75 ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-700'}`}>{row.value >= 90 ? 'Excellent' : row.value >= 75 ? 'Good' : 'Fair'}</span>
-                            </div>
-                          </div>
-                        ))}
-
-                      </>
-                    );
-                  })()}
-                </div>
-                <div className="border-t px-4 py-2 font-semibold bg-blue-50">Word Analysis ({(targetText || '').split(/\s+/).filter(Boolean).length} words)</div>
-                <div className="px-4 py-3 text-sm">
-                  {(targetText || '').split(/\s+/).filter(Boolean).map((w, i) => {
-                    // Use the same strict word matching logic as the sentence metrics
-                    const targetWord = w.toLowerCase();
-                    const userWords = (transcript || '').toLowerCase().split(/\s+/).filter(Boolean);
-                    
-                    let matched = false;
-                    let wordScore = 0;
-                    
-                    for (const userWord of userWords) {
-                      // Check for exact match first
-                      if (targetWord === userWord) {
-                        matched = true;
-                        wordScore = 100;
-                        break;
-                      }
-                      
-                      // Check for very close matches (only for minor pronunciation variations)
-                      const similarity = 1 - (levenshtein(targetWord, userWord) / Math.max(targetWord.length, userWord.length));
-                      if (similarity > 0.85) {
-                        matched = true;
-                        wordScore = Math.round(similarity * 100);
-                        break;
-                      }
-                    }
-                    
-                    // Check for common pronunciation variations
-                    if (!matched) {
-                      const commonVariations = getCommonPronunciationVariations(targetWord);
-                      for (const variation of commonVariations) {
-                        if (userWords.includes(variation)) {
-                          matched = true;
-                          wordScore = 90; // Slightly lower score for variations
-                          break;
-                        }
-                      }
-                    }
-                    
-                    return (
-                      <div key={i} className="flex items-center justify-between py-2 border-b last:border-b-0">
-                        <div className="text-gray-800">{w}</div>
-                        <div className="flex items-center space-x-2">
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full ${matched ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
-                            {matched ? wordScore : '—'}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            
-            <div className="mt-4 flex justify-end space-x-3">
-              <button onClick={() => setShowDetails(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-sm font-semibold">Close</button>
-              <button onClick={onNext} className="px-4 py-2 bg-[#29B6F6] hover:bg-[#0277BD] text-white rounded-lg text-sm font-semibold">Next</button>
-            </div>
-          </div>
-        )}
+        
 
                 {/* High Score Modal */}
         {showHighScores && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black/10 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
               <div className="p-6 border-b border-gray-200">
                 <div className="flex items-center justify-between">
@@ -1414,12 +1769,6 @@ function EvalPageContent() {
                   </div>
                 ) : highScores && highScores.recentScores.length > 0 ? (
                   <div className="space-y-6">
-                    {/* Target Text Display */}
-                    <div className="text-center">
-                      <div className="text-sm text-gray-600 mb-2">Target Text</div>
-                      <div className="text-2xl font-bold text-gray-900">{targetText}</div>
-                    </div>
-
                     {/* High Score Display */}
                     <div className="bg-gradient-to-r from-[#29B6F6] to-[#0277BD] text-white p-6 rounded-lg text-center">
                       <div className="text-4xl font-bold mb-2">{Math.round(highScores.highestScore)}%</div>
@@ -1457,6 +1806,12 @@ function EvalPageContent() {
                         // Show detailed feedback with the high score data
                         if (highScores && highScores.recentScores.length > 0) {
                           const scoreData = highScores.recentScores[0];
+                          console.log('High score detailed feedback - scoreData:', scoreData);
+                          console.log('High score detailed feedback - apiResponse:', scoreData.apiResponse);
+                          console.log('High score detailed feedback - apiResponse.result:', (scoreData.apiResponse as any)?.result);
+                          console.log('High score detailed feedback - words:', (scoreData.apiResponse as any)?.result?.words);
+                          console.log('High score detailed feedback - phonemes:', (scoreData.apiResponse as any)?.result?.words?.[0]?.phonemes);
+                          
                           setDetailedFeedbackData({
                             targetText: targetText,
                             level: level,

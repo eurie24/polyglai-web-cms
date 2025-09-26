@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firestore Update Test</title>
+</head>
+<body>
+    <h1>Firestore Update Test</h1>
+    <div id="status">Testing...</div>
+    <button onclick="testFirestoreUpdate()">Test Firestore Update</button>
+    <div id="result"></div>
+
+    <script>
+        async function testFirestoreUpdate() {
+            const statusDiv = document.getElementById('status');
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                statusDiv.textContent = 'Testing Firestore update...';
+                
+                // Test the disable API
+                const response = await fetch('/api/disable-user', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        userId: 'VDFyjh1unncUXDw4amBP7UfYkVC3', // Use the same user ID from your test
+                        action: 'disable',
+                        userEmail: 'johnlloydandalajao0@gmail.com',
+                        userName: 'Yuri'
+                    }),
+                });
+                
+                const data = await response.json();
+                console.log('Disable API response:', data);
+                
+                resultDiv.innerHTML = `
+                    <h3>API Response:</h3>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                    <h3>Details:</h3>
+                    <ul>
+                        <li>Success: ${data.success}</li>
+                        <li>Auth Updated: ${data.details?.authUpdated || false}</li>
+                        <li>Firestore Updated: ${data.details?.firestoreUpdated || false}</li>
+                        <li>Original User ID: ${data.details?.originalUserId || 'N/A'}</li>
+                        <li>Actual Auth UID: ${data.details?.actualAuthUid || 'N/A'}</li>
+                    </ul>
+                `;
+                
+                if (data.success && data.details?.firestoreUpdated) {
+                    statusDiv.textContent = 'Firestore update test completed successfully!';
+                } else {
+                    statusDiv.textContent = 'Firestore update test failed!';
+                }
+                
+            } catch (error) {
+                console.error('Test error:', error);
+                resultDiv.innerHTML = `
+                    <h3>❌ Error</h3>
+                    <p>Error: ${error.message}</p>
+                `;
+                statusDiv.textContent = 'Test failed!';
+            }
+        }
+        
+        // Auto-run test on page load
+        window.onload = () => {
+            testFirestoreUpdate();
+        };
+    </script>
+</body>
+</html>

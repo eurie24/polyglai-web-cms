@@ -1,4 +1,8 @@
 import { NextResponse } from 'next/server';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 import { getFirestore } from 'firebase-admin/firestore';
 import { initAdmin } from '@/firebase/adminInit';
 
@@ -39,6 +43,7 @@ export async function GET() {
           age: string | number;
           location: string;
           profession: string;
+          status: string;
           createdAt: string;
           lastLogin: string;
           progress?: Record<string, unknown>;
@@ -56,6 +61,7 @@ export async function GET() {
           age: doc.data().age || '',
           location: doc.data().location || '',
           profession: doc.data().userType || doc.data().profession || '',
+          status: doc.data().status || 'ACTIVE', // Include status field
           // Safely handle different date formats
           createdAt: formatDate(doc.data().createdAt),
           lastLogin: formatDate(doc.data().lastLogin)
@@ -117,16 +123,44 @@ export async function GET() {
               const languageName = langDoc.id;
               const langData = langDoc.data();
               
-              // Get assessment count from assessmentsData subcollection
-              const assessmentsSnapshot = await adminDb
-                .collection('users')
-                .doc(userId)
-                .collection('languages')
-                .doc(languageName)
-                .collection('assessmentsData')
-                .get();
-              
-              const assessmentCount = assessmentsSnapshot.size;
+              // Compute assessment count using new structure only
+              let assessmentCount = 0;
+              try {
+                const levelsSnap = await adminDb
+                  .collection('users')
+                  .doc(userId)
+                  .collection('languages')
+                  .doc(languageName)
+                  .collection('assessmentsByLevel')
+                  .get();
+
+                if (!levelsSnap.empty) {
+                  for (const levelDoc of levelsSnap.docs) {
+                    const levelAssessmentsSnap = await adminDb
+                      .collection('users')
+                      .doc(userId)
+                      .collection('languages')
+                      .doc(languageName)
+                      .collection('assessmentsByLevel')
+                      .doc(levelDoc.id)
+                      .collection('assessments')
+                      .get();
+
+                    levelAssessmentsSnap.forEach(d => {
+                      const data = d.data() as { score?: number | string };
+                      const raw = data?.score ?? 0;
+                      const score = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+                      if (!isNaN(score) && score > 0) {
+                        assessmentCount++;
+                      }
+                    });
+                  }
+                }
+              } catch (e) {
+                console.warn(`Error reading new assessments structure for ${userId}/${languageName}:`, e);
+              }
+
+              // No legacy fallback; rely solely on the new structure
               
               // Store progress data in a format the dashboard expects
               progress[languageName] = {

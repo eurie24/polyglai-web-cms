@@ -3,18 +3,16 @@ import {
   User,
   signInWithEmailAndPassword, 
   signOut as firebaseSignOut,
-  onAuthStateChanged,
-  createUserWithEmailAndPassword
+  onAuthStateChanged
 } from 'firebase/auth';
-import { auth, db } from './firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { auth } from './firebase';
+import { getErrorMessage } from './auth-error-handler';
 
 type AuthContextType = {
   user: User | null;
   isAdmin: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   error: string | null;
 };
@@ -68,43 +66,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       setIsAdmin(true);
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      setError(error.message || 'Failed to sign in');
+      setError(getErrorMessage(err, 'admin'));
       throw err;
     }
   };
 
-  const signUp = async (email: string, password: string) => {
-    try {
-      setError(null);
-      const result = await createUserWithEmailAndPassword(auth, email, password);
-      
-      // Only set as admin if it's the admin email (case-insensitive)
-      if (checkAdminByEmail(email)) {
-        // Create admin document in a separate admins collection
-        try {
-          const adminRef = doc(db, 'admins', result.user.uid);
-          await setDoc(adminRef, {
-            email: email,
-            role: 'admin',
-            createdAt: new Date(),
-          });
-          console.log('Created admin document in Firestore');
-        } catch (err) {
-          console.error('Error creating admin document:', err);
-        }
-        
-        setIsAdmin(true);
-      } else {
-        // For regular users
-        setIsAdmin(false);
-      }
-    } catch (err: unknown) {
-      const error = err as { message?: string };
-      setError(error.message || 'Failed to sign up');
-      throw err;
-    }
-  };
+  // signUp removed on web
 
   const signOut = async () => {
     try {
@@ -112,14 +79,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await firebaseSignOut(auth);
       setIsAdmin(false);
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      setError(error.message || 'Failed to sign out');
+      setError(getErrorMessage(err, 'admin'));
       throw err;
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, loading, signIn, signUp, signOut, error }}>
+    <AuthContext.Provider value={{ user, isAdmin, loading, signIn, signOut, error }}>
       {children}
     </AuthContext.Provider>
   );

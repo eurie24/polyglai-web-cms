@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Profanity Recording</title>
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, addDoc, doc, updateDoc, increment, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBQqQqQqQqQqQqQqQqQqQqQqQqQqQqQqQ",
+            authDomain: "polyglai-5591c.firebaseapp.com",
+            projectId: "polyglai-5591c",
+            storageBucket: "polyglai-5591c.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef123456"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        async function testProfanityRecording() {
+            try {
+                // Sign in anonymously
+                const userCredential = await signInAnonymously(auth);
+                const user = userCredential.user;
+                console.log('Signed in as:', user.uid);
+
+                // Test profanity recording
+                const testText = "This is a test with bad words";
+                const detectedWords = ["bad", "words"];
+                
+                // Record profanity
+                await addDoc(collection(db, 'profanity_records'), {
+                    userId: user.uid,
+                    text: testText,
+                    context: 'test',
+                    language: 'English',
+                    detectedWords: detectedWords,
+                    timestamp: serverTimestamp(),
+                    wordCount: detectedWords.length,
+                });
+
+                // Update user profanity count
+                const userRef = doc(db, 'users', user.uid);
+                await updateDoc(userRef, {
+                    profanityCount: increment(detectedWords.length),
+                    lastProfanityDetected: serverTimestamp(),
+                    updatedAt: serverTimestamp(),
+                });
+
+                console.log('Profanity recorded successfully!');
+                alert('Profanity recorded! Check the dashboard notifications tab.');
+                
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error: ' + error.message);
+            }
+        }
+
+        // Add button to test
+        document.addEventListener('DOMContentLoaded', () => {
+            const button = document.createElement('button');
+            button.textContent = 'Test Profanity Recording';
+            button.onclick = testProfanityRecording;
+            button.style.cssText = 'padding: 10px 20px; font-size: 16px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;';
+            document.body.appendChild(button);
+        });
+    </script>
+</head>
+<body>
+    <h1>Test Profanity Recording</h1>
+    <p>Click the button to test profanity recording and then check the dashboard.</p>
+</body>
+</html>

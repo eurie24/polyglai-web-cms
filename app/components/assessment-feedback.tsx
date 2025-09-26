@@ -60,42 +60,68 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
   isHighScore,
   onClose
 }) => {
+  const [openMetric, setOpenMetric] = React.useState<null | 'pronunciation' | 'fluency' | 'completeness' | 'prosody'>(null);
+  // Ensure scores are within [0, 100]
+  const normalizeScore = (score: number | undefined): number => {
+    const s = Math.round(typeof score === 'number' ? score : 0);
+    return Math.max(0, Math.min(100, s));
+  };
+
   // Extract phonemes from API response
   const getPhonemes = (): PhonemeData[] => {
+    console.log('AssessmentFeedback getPhonemes - apiResponse:', apiResponse);
+    console.log('AssessmentFeedback getPhonemes - level:', level);
+    console.log('AssessmentFeedback getPhonemes - result:', apiResponse?.result);
+    console.log('AssessmentFeedback getPhonemes - words:', apiResponse?.result?.words);
+    
     const phonemes: PhonemeData[] = [];
     
+    // Prefer Azure originalResponse words when available for accuracy
+    const anyResponse = apiResponse as unknown as { originalResponse?: any };
+    const originalWords: any[] | undefined = anyResponse?.originalResponse?.NBest?.[0]?.Words;
+
+    if (level === 'intermediate' && Array.isArray(originalWords) && originalWords.length > 0) {
+      // Build per-word pronunciation entries based on Azure word scores
+      originalWords.forEach((w: any) => {
+        const wordText: string = typeof w?.Word === 'string' ? w.Word : '';
+        const score: number = normalizeScore(w?.AccuracyScore);
+        if (wordText) {
+          phonemes.push({
+            phoneme: wordText,
+            pronunciation: score,
+            tone: 0,
+            feedback: getScoreFeedback(score)
+          });
+        }
+      });
+      return phonemes;
+    }
+
     if (apiResponse?.result?.words && apiResponse.result.words.length > 0) {
       const words = apiResponse.result.words;
       
       if (level === 'beginner' && words[0]?.phonemes) {
         // For beginner level, get phonemes from first word
         words[0].phonemes.forEach((phoneme: PhonemeEntry) => {
+          const score = normalizeScore(phoneme.pronunciation);
           phonemes.push({
             phoneme: phoneme.phone || phoneme.phoneme || '',
-            pronunciation: phoneme.pronunciation || 0,
+            pronunciation: score,
             tone: phoneme.tone || 0,
-            feedback: getScoreFeedback(phoneme.pronunciation || 0)
+            feedback: getScoreFeedback(score)
           });
         });
       } else if (level === 'intermediate') {
-        // For intermediate level, process all words
+        // If no originalResponse, fallback to words[].scores.overall if present
         words.forEach((word: WordEntry) => {
-          if (word.phonemes) {
-            word.phonemes.forEach((phoneme: PhonemeEntry) => {
-              phonemes.push({
-                phoneme: phoneme.phone || phoneme.phoneme || word.word || '',
-                pronunciation: phoneme.pronunciation || word.scores?.overall || 85,
-                tone: phoneme.tone || 0,
-                feedback: getScoreFeedback(phoneme.pronunciation || word.scores?.overall || 85)
-              });
-            });
-          } else if (word.word) {
-            // Fallback if no phonemes
+          const wordText = word.word || '';
+          const score = normalizeScore(word?.scores?.overall);
+          if (wordText) {
             phonemes.push({
-              phoneme: word.word,
-              pronunciation: word.scores?.overall || 85,
+              phoneme: wordText,
+              pronunciation: score,
               tone: 0,
-              feedback: getScoreFeedback(word.scores?.overall || 85)
+              feedback: getScoreFeedback(score)
             });
           }
         });
@@ -110,10 +136,10 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
     if (level === 'intermediate' && apiResponse?.result) {
       const result = apiResponse.result;
       return {
-        pronunciation: result.pronunciation || 0,
-        fluency: result.fluency || 0,
-        completeness: result.integrity || 0,
-        prosody: result.prosody || result.rhythm || 0
+        pronunciation: normalizeScore(result.pronunciation || 0),
+        fluency: normalizeScore(result.fluency || 0),
+        completeness: normalizeScore(result.integrity || 0),
+        prosody: normalizeScore(result.prosody || result.rhythm || 0)
       };
     }
     return {
@@ -140,6 +166,25 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
     if (score >= 70) return 'Good pronunciation';
     if (score >= 60) return 'Fair pronunciation';
     return 'Keep practicing';
+  };
+
+  const getMetricInfo = (metric: 'pronunciation' | 'fluency' | 'completeness' | 'prosody' | 'vocabulary' | 'grammar' | 'topic'): string => {
+    switch (metric) {
+      case 'pronunciation':
+        return 'Pronunciation accuracy of the speech. Accuracy indicates how closely the phonemes match a native speaker\'s pronunciation. Word and full text accuracy scores are aggregated from phoneme-level accuracy score.';
+      case 'fluency':
+        return 'Fluency of the given speech. Fluency indicates how closely the speech matches a native speaker\'s use of silent breaks between words.';
+      case 'completeness':
+        return 'Completeness of the speech, calculated by the ratio of pronounced words to the input reference text.';
+      case 'prosody':
+        return 'Prosody of the given speech. Prosody indicates the nature of the given speech, including stress, intonation, speaking speed and rhythm.';
+      case 'vocabulary':
+        return 'Proficiency in lexical usage, which is evaluated by speaker\'s effective usage of words, on how appropriate is the word used with its context to express an idea.';
+      case 'grammar':
+        return 'Proficiency of the correctness in using grammar. Grammatical errors are jointly evaluated by incorporating the level of proper grammar usage with the lexical.';
+      case 'topic':
+        return 'Level of understanding and engagement with the topic, which provides insights into the speaker\'s ability to express their thoughts and ideas effectively and the ability to engage with the topic.';
+    }
   };
 
   // Get score color
@@ -174,8 +219,88 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
   const phonemes = getPhonemes();
   const sentenceMetrics = getSentenceMetrics();
 
+  // Advanced helpers aligned with Flutter english_advanced_assessment_sheet.dart
+  const hasResult = !!apiResponse?.result;
+  const result = apiResponse?.result as (AssessmentApiResult & {
+    content?: number;
+    vocabulary?: number;
+    grammar?: number;
+    topic?: number;
+    wordCount?: number;
+    transcribedText?: string;
+    words?: Array<{
+      word?: string;
+      score?: number;
+      scores?: { overall?: number };
+      phonemes?: Array<{ phone?: string; phoneme?: string; pronunciation?: number; score?: number }>;
+    }>;
+  }) | undefined;
+
+  const getAdvancedPronunciationScore = (): number => {
+    if (!hasResult || !result) return Math.round(overallScore);
+    const pronunciation = Math.round(result.pronunciation ?? 0);
+    const fluency = Math.round(result.fluency ?? 0);
+    const prosody = Math.round((result.prosody ?? result.rhythm ?? 0));
+    const values = [pronunciation, fluency, prosody].filter(v => v > 0);
+    if (values.length === 0) return Math.round(overallScore);
+    return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+  };
+
+  const getAdvancedContentScore = (): number => {
+    if (!hasResult || !result) return Math.round(overallScore * 0.7);
+    const content = Math.round(result.content ?? 0);
+    const vocabulary = Math.round(result.vocabulary ?? 0);
+    const grammar = Math.round(result.grammar ?? 0);
+    const topic = Math.round(result.topic ?? 0);
+    const values = [content, vocabulary, grammar, topic].filter(v => v > 0);
+    if (values.length === 0) return Math.round(overallScore * 0.7);
+    return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+  };
+
+  const getAdvancedPronunciationBreakdown = (): Array<{ label: string; score: number }> => {
+    if (!hasResult || !result) {
+      return [
+        { label: 'Accuracy score', score: Math.round(overallScore) },
+        { label: 'Fluency score', score: Math.round(overallScore) },
+        { label: 'Prosody score', score: Math.round(overallScore) },
+      ];
+    }
+    return [
+      { label: 'Accuracy score', score: Math.round(result.pronunciation ?? Math.round(overallScore)) },
+      { label: 'Fluency score', score: Math.round(result.fluency ?? Math.round(overallScore)) },
+      { label: 'Prosody score', score: Math.round(result.prosody ?? result.rhythm ?? Math.round(overallScore)) },
+    ];
+  };
+
+  const getAdvancedContentBreakdown = (): Array<{ label: string; score: number }> => {
+    if (!hasResult || !result) {
+      return [
+        { label: 'Vocabulary score', score: Math.round(overallScore * 0.6) },
+        { label: 'Grammar score', score: Math.round(overallScore * 0.5) },
+        { label: 'Topic score', score: Math.round(overallScore * 0.8) },
+      ];
+    }
+    return [
+      { label: 'Vocabulary score', score: Math.round((result.vocabulary as number | undefined) ?? Math.round(overallScore * 0.6)) },
+      { label: 'Grammar score', score: Math.round((result.grammar as number | undefined) ?? Math.round(overallScore * 0.5)) },
+      { label: 'Topic score', score: Math.round((result.topic as number | undefined) ?? Math.round(overallScore * 0.8)) },
+    ];
+  };
+
+  const colorForScore = (score: number): string => {
+    if (score >= 80) return 'text-green-600';
+    if (score >= 60) return 'text-orange-600';
+    return 'text-red-600';
+  };
+
+  const bgForScore = (score: number): string => {
+    if (score >= 80) return 'bg-green-100 text-green-700';
+    if (score >= 60) return 'bg-orange-100 text-orange-700';
+    return 'bg-red-100 text-red-700';
+  };
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/10 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b border-gray-200">
           <div className="flex items-center justify-between">
@@ -195,49 +320,184 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
 
         <div className="p-6">
           <div className="space-y-6">
-            {/* Target Text Display */}
-            <div className="text-center">
-              <div className="text-sm text-gray-600 mb-2">Target Text</div>
-              <div className="text-3xl font-bold text-gray-900">{targetText}</div>
-            </div>
+            {level === 'advanced' && (
+              <>
+                <div className="text-center">
+                  <p className="text-lg text-gray-600">English Advanced Assessment</p>
+                </div>
 
+                {isHighScore && (
+                  <div className="flex justify-center">
+                    <div className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800 border border-yellow-200">
+                      <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                      New High Score!
+                    </div>
+                  </div>
+                )}
+
+                {/* Pronunciation score (overall only) */}
+                <div className="p-4 border rounded-lg">
+                  <div className="text-center text-lg font-semibold text-gray-900">Pronunciation score</div>
+                  <div className="mt-4 flex items-center justify-center">
+                    <div className="relative w-20 h-20">
+                      <svg className="w-20 h-20 -rotate-90" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" fill="transparent" className="text-gray-200" />
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" fill="transparent" strokeDasharray={`${2 * Math.PI * 10}`} strokeDashoffset={`${2 * Math.PI * 10 * (1 - getAdvancedPronunciationScore() / 100)}`} className={getScoreColor(getAdvancedPronunciationScore())} />
+                      </svg>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className={`text-xl font-bold ${getScoreColor(getAdvancedPronunciationScore())}`}>{getAdvancedPronunciationScore()}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Content score (overall only) */}
+                <div className="p-4 border rounded-lg">
+                  <div className="text-center text-lg font-semibold text-gray-900">Content score</div>
+                  <div className="mt-4 flex items-center justify-center">
+                    <div className="relative w-20 h-20">
+                      <svg className="w-20 h-20 -rotate-90" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" fill="transparent" className="text-gray-200" />
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" fill="transparent" strokeDasharray={`${2 * Math.PI * 10}`} strokeDashoffset={`${2 * Math.PI * 10 * (1 - getAdvancedContentScore() / 100)}`} className={getScoreColor(getAdvancedContentScore())} />
+                      </svg>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className={`text-xl font-bold ${getScoreColor(getAdvancedContentScore())}`}>{getAdvancedContentScore()}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Detailed analysis blocks */}
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="px-4 py-2 font-semibold bg-blue-50 border-b">Pronunciation Analysis</div>
+                  <div className="divide-y">
+                    <div className="flex items-center justify-between px-4 py-3">
+                      <div className="text-sm text-gray-700">Pronunciation</div>
+                      <div className="flex items-center space-x-2">
+                        {(() => { const v = Math.round(result?.pronunciation ?? overallScore); return (
+                          <>
+                            <span className={`text-sm font-semibold ${colorForScore(v)}`}>{v}%</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${getFeedbackBgColor(v)} ${getFeedbackTextColor(v)}`}>{getShortFeedback(v)}</span>
+                          </>
+                        );})()}
+                      </div>
+                    </div>
+                    {typeof result?.fluency === 'number' && (
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <div className="text-sm text-gray-700">Fluency</div>
+                        <div className="flex items-center space-x-2">
+                          {(() => { const v = Math.round(result?.fluency ?? 0); return (
+                            <>
+                              <span className={`text-sm font-semibold ${colorForScore(v)}`}>{v}%</span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full ${getFeedbackBgColor(v)} ${getFeedbackTextColor(v)}`}>{getShortFeedback(v)}</span>
+                            </>
+                          );})()}
+                        </div>
+                      </div>
+                    )}
+                    {typeof result?.integrity === 'number' && (
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <div className="text-sm text-gray-700">Completeness</div>
+                        <div className="flex items-center space-x-2">
+                          {(() => { const v = Math.round(result?.integrity ?? 0); return (
+                            <>
+                              <span className={`text-sm font-semibold ${colorForScore(v)}`}>{v}%</span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full ${getFeedbackBgColor(v)} ${getFeedbackTextColor(v)}`}>{getShortFeedback(v)}</span>
+                            </>
+                          );})()}
+                        </div>
+                      </div>
+                    )}
+                    {(typeof result?.prosody === 'number' || typeof result?.rhythm === 'number') && (
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <div className="text-sm text-gray-700">Prosody</div>
+                        <div className="flex items-center space-x-2">
+                          {(() => { const v = Math.round((result?.prosody ?? result?.rhythm) ?? 0); return (
+                            <>
+                              <span className={`text-sm font-semibold ${colorForScore(v)}`}>{v}%</span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full ${getFeedbackBgColor(v)} ${getFeedbackTextColor(v)}`}>{getShortFeedback(v)}</span>
+                            </>
+                          );})()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="px-4 py-2 font-semibold bg-blue-50 border-b">Content Analysis</div>
+                  <div className="divide-y">
+                    {getAdvancedContentBreakdown().map((row) => (
+                      <div key={row.label} className="flex items-center justify-between px-4 py-3">
+                        <div className="text-sm text-gray-700">{row.label}</div>
+                        <div className="flex items-center space-x-2">
+                          <span className={`text-sm font-semibold ${row.score >= 80 ? 'text-green-600' : row.score >= 60 ? 'text-orange-600' : 'text-red-600'}`}>{row.score}%</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full ${getFeedbackBgColor(row.score)} ${getFeedbackTextColor(row.score)}`}>{getShortFeedback(row.score)}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {typeof result?.wordCount === 'number' && (
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <div className="text-sm text-gray-700">Word Count</div>
+                        <span className="text-sm font-semibold text-gray-800">{result.wordCount}</span>
+                      </div>
+                    )}
+                    {result?.transcribedText && result.transcribedText.trim().length > 0 && (
+                      <div className="px-4 py-3">
+                        <div className="flex items-center space-x-2 mb-2 text-sm font-semibold text-gray-800">
+                          <svg className="w-4 h-4 text-blue-600" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                          <span>Your Response:</span>
+                        </div>
+                        <div className="p-3 bg-gray-50 rounded border border-gray-200 text-sm italic text-gray-700">{result.transcribedText}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {Array.isArray(result?.words) && result!.words!.length > 0 && (
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="px-4 py-2 font-semibold bg-blue-50">Word Analysis ({result!.words!.length} words)</div>
+                    <div className="divide-y">
+                      {result!.words!.map((w, idx) => {
+                        const wordText = w.word ?? '';
+                        const score = Math.round(w.scores?.overall ?? (w as any).score ?? 0);
+                        const phs = Array.isArray(w.phonemes) ? w.phonemes : [];
+                        return (
+                          <div key={idx}>
+                            <div className={`flex items-center justify-between px-4 py-3 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                              <div className="text-gray-900 font-semibold">{wordText}</div>
+                              <span className={`px-2 py-1 rounded-full text-xs font-bold ${bgForScore(score)}`}>{score}</span>
+                            </div>
+                            {phs.length > 0 && (
+                              <div className={`px-6 py-2 ${idx % 2 === 0 ? 'bg-gray-50' : 'bg-white'}`}>
+                                <div className="text-xs font-semibold text-gray-600 mb-2">Phoneme Breakdown:</div>
+                                <div className="flex flex-wrap gap-2">
+                                  {phs.map((p, i) => {
+                                    const phone = p.phone ?? p.phoneme ?? '';
+                                    const pScore = Math.round((p as any).pronunciation ?? (p as any).score ?? 0);
+                                    return (
+                                      <span key={i} className={`text-[11px] px-2 py-0.5 rounded border ${pScore >= 80 ? 'bg-green-50 text-green-700 border-green-400' : pScore >= 60 ? 'bg-orange-50 text-orange-700 border-orange-400' : 'bg-red-50 text-red-700 border-red-400'}`}>
+                                        {phone} ({pScore})
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
             {/* Score Message */}
             <div className="text-center">
               <p className="text-lg text-gray-600">{getScoreMessage(overallScore)}</p>
             </div>
 
-            {/* Circular Progress Indicator */}
-            <div className="flex justify-center">
-              <div className="relative w-24 h-24">
-                <svg className="w-24 h-24 transform -rotate-90" viewBox="0 0 24 24">
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    fill="transparent"
-                    className="text-gray-200"
-                  />
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    fill="transparent"
-                    strokeDasharray={`${2 * Math.PI * 10}`}
-                    strokeDashoffset={`${2 * Math.PI * 10 * (1 - overallScore / 100)}`}
-                    className={getScoreColor(overallScore)}
-                  />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className={`text-2xl font-bold ${getScoreColor(overallScore)}`}>
-                    {overallScore}%
-                  </span>
-                </div>
-              </div>
-            </div>
+            {/* Overall score circle removed as redundant */}
 
             {/* High Score Badge */}
             {isHighScore && (
@@ -256,7 +516,12 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
               <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center">Sentence Metrics</h3>
                 <div className="space-y-3">
-                  <div className="flex justify-between items-center">
+                  <button
+                    type="button"
+                    onClick={() => setOpenMetric(openMetric === 'pronunciation' ? null : 'pronunciation')}
+                    className="w-full text-left"
+                  >
+                    <div className="flex justify-between items-center">
                     <span className="text-gray-700 font-medium">Pronunciation:</span>
                     <div className="flex items-center space-x-2">
                       <span className={`font-semibold ${getScoreColor(sentenceMetrics.pronunciation)}`}>
@@ -266,8 +531,17 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
                         {getShortFeedback(sentenceMetrics.pronunciation)}
                       </span>
                     </div>
-                  </div>
-                  <div className="flex justify-between items-center">
+                    </div>
+                    {openMetric === 'pronunciation' && (
+                      <div className="mt-2 p-3 bg-white border border-gray-200 rounded text-sm text-gray-700">{getMetricInfo('pronunciation')}</div>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOpenMetric(openMetric === 'fluency' ? null : 'fluency')}
+                    className="w-full text-left"
+                  >
+                    <div className="flex justify-between items-center">
                     <span className="text-gray-700 font-medium">Fluency:</span>
                     <div className="flex items-center space-x-2">
                       <span className={`font-semibold ${getScoreColor(sentenceMetrics.fluency)}`}>
@@ -277,8 +551,17 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
                         {getShortFeedback(sentenceMetrics.fluency)}
                       </span>
                     </div>
-                  </div>
-                  <div className="flex justify-between items-center">
+                    </div>
+                    {openMetric === 'fluency' && (
+                      <div className="mt-2 p-3 bg-white border border-gray-200 rounded text-sm text-gray-700">{getMetricInfo('fluency')}</div>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOpenMetric(openMetric === 'completeness' ? null : 'completeness')}
+                    className="w-full text-left"
+                  >
+                    <div className="flex justify-between items-center">
                     <span className="text-gray-700 font-medium">Completeness:</span>
                     <div className="flex items-center space-x-2">
                       <span className={`font-semibold ${getScoreColor(sentenceMetrics.completeness)}`}>
@@ -288,8 +571,17 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
                         {getShortFeedback(sentenceMetrics.completeness)}
                       </span>
                     </div>
-                  </div>
-                  <div className="flex justify-between items-center">
+                    </div>
+                    {openMetric === 'completeness' && (
+                      <div className="mt-2 p-3 bg-white border border-gray-200 rounded text-sm text-gray-700">{getMetricInfo('completeness')}</div>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOpenMetric(openMetric === 'prosody' ? null : 'prosody')}
+                    className="w-full text-left"
+                  >
+                    <div className="flex justify-between items-center">
                     <span className="text-gray-700 font-medium">Prosody:</span>
                     <div className="flex items-center space-x-2">
                       <span className={`font-semibold ${getScoreColor(sentenceMetrics.prosody)}`}>
@@ -299,7 +591,11 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
                         {getShortFeedback(sentenceMetrics.prosody)}
                       </span>
                     </div>
-                  </div>
+                    </div>
+                    {openMetric === 'prosody' && (
+                      <div className="mt-2 p-3 bg-white border border-gray-200 rounded text-sm text-gray-700">{getMetricInfo('prosody')}</div>
+                    )}
+                  </button>
                 </div>
               </div>
             )}

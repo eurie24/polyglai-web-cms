@@ -12,6 +12,7 @@ import {
   onAuthStateChanged
 } from 'firebase/auth';
 import { auth } from '../../../src/lib/firebase';
+import { getErrorMessage } from '../../../src/lib/auth-error-handler';
 
 function AdminLoginContent() {
   const [email, setEmail] = useState('');
@@ -85,14 +86,7 @@ function AdminLoginContent() {
       router.push('/dashboard');
     } catch (err: unknown) {
       console.error('Admin login error:', err);
-      const error = err as { code?: string; message?: string };
-      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        setError('Invalid admin credentials');
-      } else if (error.code === 'auth/too-many-requests') {
-        setError('Too many failed attempts. Please try again later.');
-      } else {
-        setError(error.message || 'Failed to log in');
-      }
+      setError(getErrorMessage(err, 'admin'));
       setLoading(false);
     }
   };
@@ -128,12 +122,7 @@ function AdminLoginContent() {
       }, 5000);
     } catch (err: unknown) {
       console.error('Admin password reset error:', err);
-      const error = err as { code?: string; message?: string };
-      if (error.code === 'auth/user-not-found') {
-        setError('Admin account not found');
-      } else {
-        setError(error.message || 'Failed to send reset email');
-      }
+      setError(getErrorMessage(err, 'admin'));
     } finally {
       setLoading(false);
     }
@@ -166,8 +155,7 @@ function AdminLoginContent() {
       router.push('/dashboard');
     } catch (err: unknown) {
       console.error('Admin Google sign-in error:', err);
-      const error = err as { message?: string };
-      setError(`Admin authentication failed: ${error.message || 'Unknown error'}`);
+      setError(getErrorMessage(err, 'admin'));
       setLoading(false);
     }
   };
@@ -187,7 +175,9 @@ function AdminLoginContent() {
         {/* Admin branding */}
         <div className="text-center mb-16 sm:mb-20 md:mb-24">
           <div className="mb-4">
-            <Image src="/logo_txt.png" alt="PolyglAI Logo" width={200} height={60} className="mx-auto" />
+            <Link href="/" className="inline-block hover:opacity-80 transition-opacity duration-200">
+              <Image src="/logo_txt.png" alt="PolyglAI Logo" width={200} height={60} className="mx-auto" />
+            </Link>
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-full px-6 py-2 inline-block mb-4">
             <p className="text-white font-bold text-lg">

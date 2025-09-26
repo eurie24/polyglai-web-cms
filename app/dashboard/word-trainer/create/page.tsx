@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, addDoc, getDocs, query, orderBy } from 'firebase/firestore';
 import { auth, db } from '../../../../src/lib/firebase';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 
@@ -16,6 +16,7 @@ type Language = {
 
 export default function CreateWordTrainerQuestion() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [languages, setLanguages] = useState<Language[]>([]);
@@ -25,7 +26,6 @@ export default function CreateWordTrainerQuestion() {
     options: ['', '', '', ''],
     correctAnswer: '',
     languageId: '',
-    level: 'beginner',
     pointsValue: 5,
     explanation: '',
   });
@@ -33,7 +33,6 @@ export default function CreateWordTrainerQuestion() {
   useEffect(() => {
     // Force light mode
     document.documentElement.classList.remove('dark');
-    document.documentElement.style.colorScheme = 'light';
     document.body.classList.add('light');
     document.body.classList.remove('dark');
     
@@ -65,8 +64,14 @@ export default function CreateWordTrainerQuestion() {
       
       setLanguages(fetchedLanguages);
       
-      // Set default language if available
-      if (fetchedLanguages.length > 0) {
+      // Set default language from query param or first available
+      const langParam = searchParams.get('lang');
+      if (langParam) {
+        setFormData(prev => ({
+          ...prev,
+          languageId: langParam.toLowerCase()
+        }));
+      } else if (fetchedLanguages.length > 0) {
         setFormData(prev => ({
           ...prev,
           languageId: fetchedLanguages[0].id.toLowerCase()
@@ -165,13 +170,17 @@ export default function CreateWordTrainerQuestion() {
         options: formData.options,
         correctAnswer: formData.correctAnswer,
         languageId: formData.languageId.toLowerCase(),
-        level: formData.level.toLowerCase(),
         pointsValue: Number(formData.pointsValue),
         explanation: formData.explanation || null,
       });
       
-      // Redirect back to list
-      router.push('/dashboard/word-trainer');
+      // Redirect back to language-specific list if provided
+      const lang = searchParams.get('lang') || formData.languageId;
+      if (lang) {
+        router.push(`/dashboard/word-trainer?lang=${lang}`);
+      } else {
+        router.push('/dashboard/word-trainer');
+      }
     } catch (err) {
       console.error('Error saving question:', err);
       setError('Failed to save question. Please try again.');
@@ -192,13 +201,15 @@ export default function CreateWordTrainerQuestion() {
       {/* Sidebar */}
       <div className="w-64 bg-[#0277BD] shadow-md text-white">
         <div className="p-6 border-b border-[#29B6F6]/30">
-          <Image 
-            src="/logo_txt.png" 
-            alt="PolyglAI" 
-            width={140} 
-            height={45} 
-            className="h-10 w-auto"
-          />
+          <Link href="/dashboard" aria-label="Go to Dashboard">
+            <Image 
+              src="/logo_txt.png" 
+              alt="PolyglAI" 
+              width={140} 
+              height={45} 
+              className="h-10 w-auto cursor-pointer"
+            />
+          </Link>
         </div>
         <nav className="mt-6">
           <div className="px-4">
@@ -302,24 +313,6 @@ export default function CreateWordTrainerQuestion() {
               </select>
             </div>
             
-            {/* Level */}
-            <div className="mb-4">
-              <label className="block text-gray-700 font-medium mb-2" htmlFor="level">
-                Level*
-              </label>
-              <select
-                id="level"
-                name="level"
-                value={formData.level}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#0277BD]"
-                required
-              >
-                <option value="beginner">Beginner</option>
-                <option value="intermediate">Intermediate</option>
-                <option value="advanced">Advanced</option>
-              </select>
-            </div>
             
             {/* Points Value */}
             <div className="mb-4">

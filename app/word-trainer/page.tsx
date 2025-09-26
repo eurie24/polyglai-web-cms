@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, Suspense, useRef } from 'react';
+import CustomDialog from '../../src/components/CustomDialog';
+import { useCustomDialog } from '../../src/hooks/useCustomDialog';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../../src/lib/firebase';
@@ -10,7 +12,6 @@ function WordTrainerPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const languageId = searchParams.get('language') || 'english';
-  const level = searchParams.get('level') || 'beginner';
 
   const [questions, setQuestions] = useState<WordTrainerQuestion[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -22,18 +23,86 @@ function WordTrainerPageContent() {
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [quizCompleted, setQuizCompleted] = useState(false);
   const [userAnswers, setUserAnswers] = useState<Map<number, string>>(new Map());
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const { dialogState, showError, hideDialog } = useCustomDialog();
+
+  // Audio refs
+  const correctAudioRef = useRef<HTMLAudioElement | null>(null);
+  const incorrectAudioRef = useRef<HTMLAudioElement | null>(null);
+  const excellentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const poorAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Initialize and preload audio
+  useEffect(() => {
+    // Try to load persisted preference
+    try {
+      const saved = localStorage.getItem('polyglai_sound_effects');
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        setSoundEnabled(parsed === true);
+      }
+    } catch {}
+
+    const makeAudio = (src: string) => {
+      const a = typeof window !== 'undefined' ? new Audio(src) : null;
+      if (a) {
+        a.preload = 'auto';
+        a.volume = 1.0;
+      }
+      return a;
+    };
+
+    // These files should be placed under public/sounds/
+    correctAudioRef.current = makeAudio('/sounds/correct.mp3');
+    incorrectAudioRef.current = makeAudio('/sounds/incorrect.mp3');
+    // Prefer mp3 for web; fallback keeps .mp4 path if that's what exists
+    excellentAudioRef.current = makeAudio('/sounds/excellent_score.mp3');
+    poorAudioRef.current = makeAudio('/sounds/poor_score.mp3');
+
+    return () => {
+      // Best-effort cleanup
+      [correctAudioRef.current, incorrectAudioRef.current, excellentAudioRef.current, poorAudioRef.current].forEach((a) => {
+        if (a) {
+          try {
+            a.pause();
+            // @ts-ignore - clearing src helps some browsers release
+            a.src = '';
+          } catch {}
+        }
+      });
+    };
+  }, []);
+
+  const playSound = useCallback((type: 'correct' | 'incorrect' | 'excellent' | 'poor') => {
+    if (!soundEnabled) return;
+    try {
+      const ref =
+        type === 'correct' ? correctAudioRef.current :
+        type === 'incorrect' ? incorrectAudioRef.current :
+        type === 'excellent' ? excellentAudioRef.current :
+        poorAudioRef.current;
+      if (ref) {
+        // rewind for rapid taps
+        ref.currentTime = 0;
+        const p = ref.play();
+        if (p && typeof p.then === 'function') {
+          p.catch(() => {});
+        }
+      }
+    } catch {}
+  }, [soundEnabled]);
 
   const loadQuestions = useCallback(async () => {
     setIsLoading(true);
     try {
-      const questionsData = await WordTrainerService.getQuestions(languageId, level, 10);
+      const questionsData = await WordTrainerService.getQuestions(languageId, 10);
       setQuestions(questionsData);
     } catch (error) {
       console.error('Error loading questions:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [languageId, level]);
+  }, [languageId]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -52,6 +121,9 @@ function WordTrainerPageContent() {
 
     const currentQuestion = questions[currentQuestionIndex];
     const correct = answer === currentQuestion.correctAnswer;
+
+    // Play sound effect
+    playSound(correct ? 'correct' : 'incorrect');
 
     setShowAnswer(true);
     setSelectedAnswer(answer);
@@ -86,6 +158,14 @@ function WordTrainerPageContent() {
       const earnedPoints = totalQuestions > 0 ? (score * pointsPerQuestion) : 0;
       const finalPoints = Math.max(earnedPoints, 1); // Always give at least 1 point
 
+      // Play summary sound based on percentage
+      const percentage = totalQuestions > 0 ? (score / totalQuestions) * 100 : 0;
+      if (percentage >= 70) {
+        playSound('excellent');
+      } else {
+        playSound('poor');
+      }
+
       // Save result
       const success = await WordTrainerService.saveResult(languageId, finalPoints);
 
@@ -93,11 +173,11 @@ function WordTrainerPageContent() {
         setTotalPointsEarned(finalPoints);
         setQuizCompleted(true);
       } else {
-        alert('Failed to save results. Please try again.');
+        showError('Save Failed', 'Failed to save results. Please try again.');
       }
     } catch (error) {
       console.error('Error finishing quiz:', error);
-      alert('An error occurred. Please try again.');
+      showError('Error', 'An error occurred. Please try again.');
     }
   };
 
@@ -112,6 +192,8 @@ function WordTrainerPageContent() {
     setIsLoading(true);
     loadQuestions();
   };
+
+  // Sound preference is loaded from localStorage on mount. UI toggle removed per design.
 
   const getLanguageDisplayName = (languageCode: string) => {
     const languageNames: { [key: string]: string } = {
@@ -142,7 +224,7 @@ function WordTrainerPageContent() {
           <div className="text-6xl mb-4">📚</div>
           <h2 className="text-2xl font-bold text-gray-900 mb-4">No Questions Available</h2>
           <p className="text-gray-600 mb-4">
-            No questions available for {getLanguageDisplayName(languageId)} {level} level yet.
+            No questions available for {getLanguageDisplayName(languageId)} yet.
           </p>
           <p className="text-sm text-gray-500 mb-8">
             Questions need to be added to the Firestore database by an administrator.
@@ -154,6 +236,20 @@ function WordTrainerPageContent() {
             Back to Dashboard
           </button>
         </div>
+        {dialogState.isOpen && dialogState.options && (
+          <CustomDialog
+            isOpen={dialogState.isOpen}
+            onClose={hideDialog}
+            title={dialogState.options.title}
+            message={dialogState.options.message}
+            type={dialogState.options.type}
+            onConfirm={dialogState.options.onConfirm}
+            onCancel={dialogState.options.onCancel}
+            confirmText={dialogState.options.confirmText}
+            cancelText={dialogState.options.cancelText}
+            showCancel={dialogState.options.type === 'confirm'}
+          />
+        )}
       </div>
     );
   }
@@ -226,6 +322,20 @@ function WordTrainerPageContent() {
             </button>
           </div>
         </div>
+        {dialogState.isOpen && dialogState.options && (
+          <CustomDialog
+            isOpen={dialogState.isOpen}
+            onClose={hideDialog}
+            title={dialogState.options.title}
+            message={dialogState.options.message}
+            type={dialogState.options.type}
+            onConfirm={dialogState.options.onConfirm}
+            onCancel={dialogState.options.onCancel}
+            confirmText={dialogState.options.confirmText}
+            cancelText={dialogState.options.cancelText}
+            showCancel={dialogState.options.type === 'confirm'}
+          />
+        )}
       </div>
     );
   }
@@ -239,7 +349,7 @@ function WordTrainerPageContent() {
         <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold text-gray-900">
-              Word Trainer - {getLanguageDisplayName(languageId)} {level.charAt(0).toUpperCase() + level.slice(1)}
+              Word Trainer - {getLanguageDisplayName(languageId)}
             </h1>
             <button
               onClick={() => router.push('/user-dashboard')}
@@ -354,6 +464,20 @@ function WordTrainerPageContent() {
           )}
         </div>
       </div>
+      {dialogState.isOpen && dialogState.options && (
+        <CustomDialog
+          isOpen={dialogState.isOpen}
+          onClose={hideDialog}
+          title={dialogState.options.title}
+          message={dialogState.options.message}
+          type={dialogState.options.type}
+          onConfirm={dialogState.options.onConfirm}
+          onCancel={dialogState.options.onCancel}
+          confirmText={dialogState.options.confirmText}
+          cancelText={dialogState.options.cancelText}
+          showCancel={dialogState.options.type === 'confirm'}
+        />
+      )}
     </div>
   );
 }

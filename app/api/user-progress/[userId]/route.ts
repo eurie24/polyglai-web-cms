@@ -2,16 +2,12 @@ import { NextResponse } from 'next/server';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initAdmin } from '@/firebase/adminInit';
 
-// Cache for user progress data
-const progressCache = new Map<string, { data: unknown; timestamp: number }>();
-const PROGRESS_CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
-
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ userId: string }> }
+  { params }: { params: { userId: string } }
 ) {
   try {
-    const { userId } = await params;
+    const { userId } = params;
     
     if (!userId) {
       return NextResponse.json(
@@ -20,64 +16,95 @@ export async function GET(
       );
     }
     
-    const cacheKey = `user-progress-${userId}`;
-    const cached = progressCache.get(cacheKey);
-    
-    // Return cached data if still valid
-    if (cached && Date.now() - cached.timestamp < PROGRESS_CACHE_DURATION) {
-      console.log(`Returning cached progress data for user ${userId}`);
-      return NextResponse.json({
-        success: true,
-        progress: cached.data,
-        cached: true
-      });
-    }
-
-    console.log(`Fetching progress data for user ${userId}...`);
+    console.log(`Fetching fresh progress data for user ${userId}...`);
     
     const app = await initAdmin();
     const adminDb = getFirestore(app);
     
-    // Fetch language progress and assessment data
-    const languagesSnapshot = await adminDb
+    // Get user preferred language, map display names to codes like Flutter
+    const userDoc = await adminDb.collection('users').doc(userId).get();
+    let preferredLanguage: string = 'english';
+    if (userDoc.exists) {
+      const pdata = userDoc.data() as Record<string, unknown>;
+      const raw = (pdata?.preferredLanguage as string | undefined) ?? 'english';
+      const validCodes = ['english','mandarin','spanish','japanese','korean'];
+      if (validCodes.includes(String(raw).toLowerCase())) {
+        preferredLanguage = String(raw).toLowerCase();
+      } else {
+        const map: Record<string,string> = {
+          'English':'english', 'Mandarin':'mandarin', 'Español':'spanish', 'Nihongo':'japanese', 'Hangugeo':'korean'
+        };
+        preferredLanguage = map[String(raw)] ?? 'english';
+      }
+    }
+
+    // Load language doc for points
+    const langDocSnap = await adminDb
       .collection('users')
       .doc(userId)
       .collection('languages')
+      .doc(preferredLanguage)
       .get();
+    const langData = langDocSnap.exists ? (langDocSnap.data() as Record<string, unknown>) : {};
 
-    const progress: Record<string, unknown> = {};
-    
-    if (!languagesSnapshot.empty) {
-      for (const langDoc of languagesSnapshot.docs) {
-        const languageName = langDoc.id;
-        const langData = langDoc.data();
-        
-        // Get assessment count from assessmentsData subcollection
-        const assessmentsSnapshot = await adminDb
+    // Count completed assessments per level (score > 0)
+    const levels = ['beginner','intermediate', ...(preferredLanguage === 'english' ? ['advanced'] : [])];
+    const assessmentCounts: Record<string, number> = { beginner: 0, intermediate: 0, advanced: 0 };
+    for (const level of levels) {
+      try {
+        const levelAssessmentsSnap = await adminDb
           .collection('users')
           .doc(userId)
           .collection('languages')
-          .doc(languageName)
-          .collection('assessmentsData')
+          .doc(preferredLanguage)
+          .collection('assessmentsByLevel')
+          .doc(level)
+          .collection('assessments')
           .get();
-        
-        const assessmentCount = assessmentsSnapshot.size;
-        
-        // Store progress data
-        progress[languageName] = {
-          points: langData.points || 0,
-          level: langData.level || 'beginner',
-          assessments: langData.assessments || [],
-          assessmentsByLevel: langData.assessmentsByLevel || {},
-          assessmentCount: assessmentCount,
-          wordAssessment: assessmentCount,
-          completedAssessments: assessmentCount
-        };
+        levelAssessmentsSnap.forEach(d => {
+          const data = d.data() as { score?: number | string };
+          const raw = data?.score ?? 0;
+          const score = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+          if (!isNaN(score) && score > 0) assessmentCounts[level] = (assessmentCounts[level] || 0) + 1;
+        });
+      } catch (e) {
+        console.warn(`Error counting assessments for ${userId}/${preferredLanguage}/${level}:`, e);
       }
     }
-    
-    // Cache the results
-    progressCache.set(cacheKey, { data: progress, timestamp: Date.now() });
+
+    // Fetch total items per level from languages collection using count() aggregate
+    const itemCounts: Record<string, number> = { beginner: 10, intermediate: 10, advanced: 10 };
+    for (const level of levels) {
+      try {
+        // @ts-ignore admin SDK count aggregation
+        const countSnap = await adminDb
+          .collection('languages')
+          .doc(preferredLanguage)
+          .collection('characters')
+          .doc(level)
+          .collection('items')
+          .count()
+          .get();
+        // Some SDKs return { count }, some nested; handle both
+        const c = (countSnap as unknown as { count?: number }).count ?? (countSnap as any)?._data?.count ?? 0;
+        itemCounts[level] = typeof c === 'number' && c > 0 ? c : itemCounts[level];
+      } catch (e) {
+        console.warn(`Error counting items for ${preferredLanguage}/${level}:`, e);
+      }
+    }
+
+    const totalCompleted = (assessmentCounts['beginner'] || 0) + (assessmentCounts['intermediate'] || 0) + (preferredLanguage === 'english' ? (assessmentCounts['advanced'] || 0) : 0);
+
+    const progress: Record<string, unknown> = {};
+    progress[preferredLanguage] = {
+      points: (langData?.points as number) || 0,
+      level: (langData?.level as string) || 'beginner',
+      assessmentCount: totalCompleted,
+      completedAssessments: totalCompleted,
+      wordAssessment: totalCompleted,
+      assessmentCounts,
+      itemCounts
+    };
     
     return NextResponse.json({
       success: true,

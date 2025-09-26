@@ -1,15 +1,101 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import Tesseract from 'tesseract.js';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, getDocs, doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import CustomDialog from '../../src/components/CustomDialog';
+import { useCustomDialog } from '../../src/hooks/useCustomDialog';
+import { collection, getDocs, doc, getDoc, updateDoc, setDoc, onSnapshot, getCountFromServer } from 'firebase/firestore';
 import { auth, db } from '../../src/lib/firebase';
 import { azureSpeechService } from '../services/azure-speech-service';
 import { MicrosoftTranslatorService } from '../services/microsoft-translator-service';
+import { ProfanityFilterService } from '../../src/services/profanityFilterService';
 import PerformanceMonitor from '../../src/components/PerformanceMonitor';
+// duplicate imports removed
+
+// Simple in-memory cache for Firestore data
+const cache = new Map<string, { data: any; timestamp: number; ttl: number }>();
+
+const getCachedData = (key: string) => {
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.timestamp < cached.ttl) {
+    return cached.data;
+  }
+  return null;
+};
+
+const setCachedData = (key: string, data: any, ttl: number = 5 * 60 * 1000) => {
+  cache.set(key, { data, timestamp: Date.now(), ttl });
+};
+
+// Helper function to get accent information for pronunciation assessment
+const getAccentInfo = (languageCode: string): string => {
+  const accentMap: Record<string, string> = {
+    'english': 'en-US (US accent)',
+    'mandarin': 'zh-CN (Simplified)',
+    'japanese': 'ja-JP (Japan)',
+    'spanish': 'es-ES (Spain)',
+    'korean': 'ko-KR (South Korea)',
+  };
+  
+  return accentMap[languageCode.toLowerCase()] || '';
+};
+
+// Helper function to get total character count for a language and level
+async function getTotalAssessmentsForLevel(language: string, level: string): Promise<number> {
+  try {
+    // First try to get from the characters collection (new format)
+    const charactersSnapshot = await getCountFromServer(
+      collection(db, 'languages', language.toLowerCase(), 'characters', level.toLowerCase(), 'items')
+    );
+    
+    if (charactersSnapshot.data().count > 0) {
+      console.log(`Found ${charactersSnapshot.data().count} characters for ${language} ${level}`);
+      return charactersSnapshot.data().count;
+    }
+    
+    // Fallback: try the original characters collection format
+    const originalDoc = await getDoc(doc(db, 'characters', language.toLowerCase()));
+    
+    if (originalDoc.exists()) {
+      const data = originalDoc.data();
+      const characters = data?.[level.toLowerCase()] as any[] | undefined;
+      if (characters && characters.length > 0) {
+        console.log(`Found ${characters.length} characters for ${language} ${level} (original format)`);
+        return characters.length;
+      }
+    }
+    
+    // Final fallback: return a reasonable default based on level
+    const defaultCount = level.toLowerCase() === 'beginner' ? 10 : 15;
+    console.log(`Using default count ${defaultCount} for ${language} ${level}`);
+    return defaultCount;
+  } catch (e) {
+    console.error(`Error getting total assessments for ${language} ${level}:`, e);
+    // Return a reasonable default
+    return level.toLowerCase() === 'beginner' ? 10 : 15;
+  }
+}
+
+// Skeleton loading components
+const SkeletonCard = () => (
+  <div className="bg-white rounded-lg shadow-md p-6 animate-pulse">
+    <div className="h-4 bg-gray-200 rounded w-3/4 mb-4"></div>
+    <div className="h-8 bg-gray-200 rounded w-1/2"></div>
+  </div>
+);
+
+const SkeletonStats = () => (
+  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    {[1, 2, 3, 4].map((i) => (
+      <SkeletonCard key={i} />
+    ))}
+  </div>
+);
 
 // Extend Window interface for Speech Recognition (keeping for compatibility)
 declare global {
@@ -27,20 +113,82 @@ type UserProfile = {
   preferredLanguage: string;
   uid: string;
   avatarUrl?: string;
+  createdAt?: any;
+};
+
+// Helper function to format joined date text
+const getJoinedDateText = (createdAt: any) => {
+  if (!createdAt) return 'Joined recently';
+
+  try {
+    // Handle different Timestamp formats from Firestore
+    let createdDate: Date;
+    
+    if (createdAt.toDate && typeof createdAt.toDate === 'function') {
+      // Firestore Timestamp object
+      createdDate = createdAt.toDate();
+    } else if (createdAt.seconds) {
+      // Firestore Timestamp with seconds property
+      createdDate = new Date(createdAt.seconds * 1000);
+    } else if (typeof createdAt === 'string') {
+      createdDate = new Date(createdAt);
+    } else {
+      createdDate = new Date(createdAt);
+    }
+
+    const now = new Date();
+    const differenceInMs = now.getTime() - createdDate.getTime();
+    const differenceInDays = Math.floor(differenceInMs / (1000 * 60 * 60 * 24));
+
+    // Format the date in a user-friendly way
+    if (differenceInDays < 1) {
+      return 'Joined today';
+    } else if (differenceInDays === 1) {
+      return 'Joined yesterday';
+    } else if (differenceInDays < 30) {
+      return `Joined ${differenceInDays} days ago`;
+    } else if (differenceInDays < 365) {
+      const months = Math.floor(differenceInDays / 30);
+      if (months === 1) {
+        return 'Joined 1 month ago';
+      } else {
+        return `Joined ${months} months ago`;
+      }
+    } else {
+      const years = Math.floor(differenceInDays / 365);
+      if (years === 1) {
+        return 'Joined 1 year ago';
+      } else {
+        return `Joined ${years} years ago`;
+      }
+    }
+  } catch (error) {
+    console.error('Error formatting joined date:', error);
+    return 'Joined recently';
+  }
 };
 
 export default function UserDashboard() {
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [preferredLanguage, setPreferredLanguage] = useState<string>('english');
   const [languagePoints, setLanguagePoints] = useState(0);
+  const [usageStats, setUsageStats] = useState<{ streakDays: number; lessonsCompleted: number; assessmentCount: number; totalPoints: number }>({ streakDays: 0, lessonsCompleted: 0, assessmentCount: 0, totalPoints: 0 });
   const [isExpanded, setIsExpanded] = useState(false);
   const [beginnerAssessmentCount, setBeginnerAssessmentCount] = useState(0);
   const [intermediateAssessmentCount, setIntermediateAssessmentCount] = useState(0);
-  const [beginnerTotalItems, setBeginnerTotalItems] = useState(10);
-  const [intermediateTotalItems, setIntermediateTotalItems] = useState(10);
+  const [beginnerTotalItems, setBeginnerTotalItems] = useState(0);
+  const [intermediateTotalItems, setIntermediateTotalItems] = useState(0);
   const [activeSection, setActiveSection] = useState('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  
+  // Badge state
+  const [userBadges, setUserBadges] = useState<Record<string, boolean>>({});
+  const [badgeLoading, setBadgeLoading] = useState(true);
+  
+  // Custom dialog state
+  const { dialogState, showConfirm, showError, showInfo, showSuccess, hideDialog } = useCustomDialog();
   
   // Translation state
   const [translationMode, setTranslationMode] = useState('text');
@@ -51,13 +199,17 @@ export default function UserDashboard() {
   const [transliterationText, setTransliterationText] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [characterLimit] = useState(100);
   const [showSourceLangSelector, setShowSourceLangSelector] = useState(false);
   const [showTargetLangSelector, setShowTargetLangSelector] = useState(false);
+  // Remove duplicate hook usage; showError already available above
   
   // File translation state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileTranslationResult, setFileTranslationResult] = useState('');
+  const [fileTranslatedText, setFileTranslatedText] = useState('');
+  const [fileTransliterationText, setFileTransliterationText] = useState('');
 
   const [featuredLanguage, setFeaturedLanguage] = useState<{ id: string; name: string; flag: string } | null>(null);
   const [otherLanguages, setOtherLanguages] = useState<{ id: string; name: string; flag: string }[]>([]);
@@ -66,8 +218,11 @@ export default function UserDashboard() {
   // Edit profile state
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [editName, setEditName] = useState('');
-  const [editPreferredLanguage, setEditPreferredLanguage] = useState('english');
   const [editAvatar, setEditAvatar] = useState('/updated avatars/3.svg');
+  const normalizeAssetPath = (p?: string): string => {
+    if (!p) return '';
+    return p.startsWith('assets/') ? `/${p.replace(/^assets\//, '')}` : p;
+  };
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   
   // Speech recognition state
@@ -116,6 +271,15 @@ export default function UserDashboard() {
     Hangugeo: 'ko',
   };
 
+  // Reverse mapping from language codes to display names
+  const codeToLanguageName: Record<string, string> = {
+    'en': 'English',
+    'es': 'Español',
+    'zh-cn': 'Mandarin',
+    'ja': 'Nihongo',
+    'ko': 'Hangugeo',
+  };
+
   // Level Up language data
   const levelUpLanguages = useMemo(() => [
     {
@@ -147,15 +311,107 @@ export default function UserDashboard() {
   
   const router = useRouter();
 
+  // Load user badges from Firestore
+  const loadUserBadges = useCallback(async (userId: string) => {
+    try {
+      setBadgeLoading(true);
+      
+      const badgeCacheKey = `badges_${userId}`;
+      const cachedBadges = getCachedData(badgeCacheKey);
+      
+      if (cachedBadges && cachedBadges.data) {
+        setUserBadges(cachedBadges.data);
+        setBadgeLoading(false);
+        return;
+      }
+      
+      // Define the badge IDs that match the Flutter app
+      const badgeIds = [
+        'rookie_linguist',
+        'word_explorer', 
+        'voice_breaker',
+        'daily_voyager',
+        'phrase_master',
+        'fluent_flyer',
+        'polyglot_in_progress',
+        'crown_of_fluency',
+        'legend_of_polyglai'
+      ];
+
+      const badgeStatus: Record<string, boolean> = {};
+      
+      // Check each badge in parallel
+      const badgeChecks = badgeIds.map(async (badgeId) => {
+        try {
+          const badgeDoc = await getDoc(doc(db, 'users', userId, 'badges', badgeId));
+          if (badgeDoc.exists()) {
+            const data = badgeDoc.data();
+            // Badge is unlocked if it's earned AND claimed
+            badgeStatus[badgeId] = data.isEarned === true && data.isClaimed === true;
+          } else {
+            badgeStatus[badgeId] = false;
+          }
+        } catch (error) {
+          console.warn(`Error checking badge ${badgeId}:`, error);
+          badgeStatus[badgeId] = false;
+        }
+      });
+
+      await Promise.all(badgeChecks);
+      setUserBadges(badgeStatus);
+      
+      // Cache badges for 5 minutes
+      setCachedData(badgeCacheKey, badgeStatus, 5 * 60 * 1000);
+      
+      console.log('Loaded user badges:', badgeStatus);
+    } catch (error) {
+      console.error('Error loading user badges:', error);
+      // Set all badges as locked on error
+      setUserBadges({
+        'rookie_linguist': false,
+        'word_explorer': false,
+        'voice_breaker': false,
+        'daily_voyager': false,
+        'phrase_master': false,
+        'fluent_flyer': false,
+        'polyglot_in_progress': false,
+        'crown_of_fluency': false,
+        'legend_of_polyglai': false
+      });
+    } finally {
+      setBadgeLoading(false);
+    }
+  }, []);
+
   const loadUserData = useCallback(async (userId: string) => {
     try {
       setLoading(true);
 
-      // Load user profile
-      const userDoc = await getDoc(doc(db, 'users', userId));
+      // Load essential data in parallel for faster initial render with caching
+      const userCacheKey = `user_${userId}`;
+      const profileCacheKey = `profile_${userId}`;
+      
+      const [userDoc, profileDoc] = await Promise.all([
+        (async () => {
+          const cached = getCachedData(userCacheKey);
+          if (cached) return cached;
+          const userDocResult = await getDoc(doc(db, 'users', userId));
+          setCachedData(userCacheKey, userDocResult, 2 * 60 * 1000); // 2 minutes cache
+          return userDocResult;
+        })(),
+        (async () => {
+          const cached = getCachedData(profileCacheKey);
+          if (cached) return cached;
+          const profileDocResult = await getDoc(doc(db, 'users', userId, 'profile', 'info'));
+          setCachedData(profileCacheKey, profileDocResult, 2 * 60 * 1000); // 2 minutes cache
+          return profileDocResult;
+        })()
+      ]);
+
       let profile: UserProfile | null = null;
       let prefLang = 'english';
 
+      // Check main user document first
       if (userDoc.exists()) {
         const userData = userDoc.data();
         const rawPreferredLanguage = userData.preferredLanguage || 'english';
@@ -164,121 +420,227 @@ export default function UserDashboard() {
           email: userData.email || '',
           preferredLanguage: rawPreferredLanguage,
           uid: userId,
-          avatarUrl: userData.avatarUrl || userData.photoURL || '/updated avatars/3.svg'
+          avatarUrl: normalizeAssetPath(userData.avatarUrl || userData.avatarURL || userData.photoURL || '/updated avatars/3.svg'),
+          createdAt: userData.createdAt
+        };
+        prefLang = mapDisplayNameToCode(rawPreferredLanguage);
+      }
+      // Fallback to profile subcollection
+      else if (profileDoc.exists()) {
+        const profileData = profileDoc.data();
+        const rawPreferredLanguage = profileData.preferredLanguage || 'english';
+        profile = {
+          name: profileData.name || 'User',
+          email: profileData.email || '',
+          preferredLanguage: rawPreferredLanguage,
+          uid: userId,
+          avatarUrl: normalizeAssetPath(profileData.avatarUrl || profileData.avatarURL || '/updated avatars/3.svg'),
+          createdAt: profileData.createdAt
         };
         prefLang = mapDisplayNameToCode(rawPreferredLanguage);
       }
 
-      // If no profile in main doc, try profile/info subcollection
-      if (!profile) {
-        const profileDoc = await getDoc(doc(db, 'users', userId, 'profile', 'info'));
-        if (profileDoc.exists()) {
-          const profileData = profileDoc.data();
-          const rawPreferredLanguage = profileData.preferredLanguage || 'english';
-          profile = {
-            name: profileData.name || 'User',
-            email: profileData.email || '',
-            preferredLanguage: rawPreferredLanguage,
-            uid: userId,
-            avatarUrl: profileData.avatarUrl || '/updated avatars/3.svg'
-          };
-          prefLang = mapDisplayNameToCode(rawPreferredLanguage);
-        }
-      }
-
-      // Get language progress
-      const langDoc = await getDoc(doc(db, 'users', userId, 'languages', prefLang.toLowerCase()));
-      let points = 0;
-
-      if (langDoc.exists()) {
-        const langData = langDoc.data();
-        points = langData.points || 0;
-      }
-
-      // Get assessment counts from assessmentsByLevel structure (matching Flutter version)
-      let beginnerCount = 0;
-      let intermediateCount = 0;
-      let assessmentPoints = 0;
-
-      try {
-        // Get beginner assessments
-        const beginnerAssessments = await getDocs(
-          collection(db, 'users', userId, 'languages', prefLang.toLowerCase(), 'assessmentsByLevel', 'beginner', 'assessments')
-        );
-        beginnerAssessments.docs.forEach(doc => {
-          const data = doc.data();
-          const score = parseInt(data.score) || 0;
-          if (score > 0) {
-            beginnerCount++;
-            assessmentPoints += score;
-          }
-        });
-
-        // Get intermediate assessments
-        const intermediateAssessments = await getDocs(
-          collection(db, 'users', userId, 'languages', prefLang.toLowerCase(), 'assessmentsByLevel', 'intermediate', 'assessments')
-        );
-        intermediateAssessments.docs.forEach(doc => {
-          const data = doc.data();
-          const score = parseInt(data.score) || 0;
-          if (score > 0) {
-            intermediateCount++;
-            assessmentPoints += score;
-          }
-        });
-
-        // Advanced assessments are not currently surfaced in this UI; skip counting to avoid unused vars
-      } catch (e) {
-        console.error('Error fetching assessments:', e);
-        // Fallback to old structure if assessmentsByLevel doesn't exist
-        try {
-          const assessmentsQuery = await getDocs(
-            collection(db, 'users', userId, 'languages', prefLang.toLowerCase(), 'assessmentsData')
-          );
-
-          assessmentsQuery.docs.forEach(doc => {
-            const data = doc.data();
-            if (data.level === 'beginner') beginnerCount++;
-            if (data.level === 'intermediate') intermediateCount++;
-            if (data.score) {
-              assessmentPoints += parseInt(data.score) || 0;
-            }
-          });
-        } catch (fallbackError) {
-          console.error('Error with fallback assessment query:', fallbackError);
-        }
-      }
-
-      // Get character counts for progress calculation
-      let beginnerTotal = 10;
-      let intermediateTotal = 10;
-
-      try {
-        // Count documents in beginner subcollection
-        const beginnerChars = await getDocs(collection(db, 'languages', prefLang.toLowerCase(), 'characters', 'beginner', 'items'));
-        beginnerTotal = beginnerChars.docs.length;
-
-        // Count documents in intermediate subcollection
-        const intermediateChars = await getDocs(collection(db, 'languages', prefLang.toLowerCase(), 'characters', 'intermediate', 'items'));
-        intermediateTotal = intermediateChars.docs.length;
-
-        // Advanced totals not used in current UI; skipping fetch
-      } catch (e) {
-        console.error('Error fetching character counts:', e);
-      }
-
+      // Set profile and preferred language immediately for faster UI render
       setUserProfile(profile);
       setPreferredLanguage(prefLang);
-      setLanguagePoints(points + assessmentPoints);
+
+      // Load usage stats in parallel with other data
+      const loadUsageStats = async () => {
+        try {
+          const usageCacheKey = `usage_${userId}`;
+          const cachedUsage = getCachedData(usageCacheKey);
+          
+          if (cachedUsage && cachedUsage.data) {
+            const data = cachedUsage.data;
+            const streakDays = Number((data.streakDays as number | undefined) ?? (data.currentStreak as number | undefined) ?? 0);
+            const lessonsCompleted = Number((data.lessonsCompleted as number | undefined) ?? (data.totalLessons as number | undefined) ?? 0);
+            const totalPoints = Number(data.totalPoints || 0);
+            const assessmentCount = Number(data.assessmentCount || 0);
+            setUsageStats({ streakDays, lessonsCompleted, assessmentCount, totalPoints });
+            return;
+          }
+          
+          // Try both usage document paths in parallel
+          const [usageDocLower, usageDocUpper] = await Promise.all([
+            getDoc(doc(db, 'users', userId, 'stats', 'usage')),
+            getDoc(doc(db, 'users', userId, 'stats', 'Usage'))
+          ]);
+          
+          const usageDoc = usageDocLower.exists() ? usageDocLower : usageDocUpper;
+          
+          if (usageDoc.exists()) {
+            const data = usageDoc.data() as { [key: string]: unknown };
+            const streakDays = Number((data.streakDays as number | undefined) ?? (data.currentStreak as number | undefined) ?? 0);
+            const lessonsCompleted = Number((data.lessonsCompleted as number | undefined) ?? (data.totalLessons as number | undefined) ?? 0);
+            
+            // Get base points and language data in parallel
+            const [basePointsDoc, langsSnap] = await Promise.all([
+              getDoc(doc(db, 'users', userId)),
+              getDocs(collection(db, 'users', userId, 'languages'))
+            ]);
+            
+            const basePoints = basePointsDoc.exists() ? Number(((basePointsDoc.data() as any).totalPoints as number | undefined) ?? 0) : 0;
+            
+            // Calculate word trainer points
+            let wordTrainerPoints = 0;
+            const languageIds: string[] = [];
+            langsSnap.forEach(l => {
+              const d = l.data() as Record<string, unknown>;
+              const p = d.points;
+              const n = typeof p === 'number' ? p : (typeof p === 'string' ? parseInt(p, 10) : 0);
+              wordTrainerPoints += (isNaN(n as number) ? 0 : (n as number));
+              languageIds.push(l.id);
+            });
+            
+            // Compute Lessons Passed using dynamic character counts
+            let lessonsCompletedComputed = 0;
+            try {
+              for (const lang of languageIds) {
+                for (const level of ['beginner', 'intermediate'] as const) {
+                  try {
+                    const assessmentsSnap = await getDocs(
+                      collection(db, 'users', userId, 'languages', lang.toLowerCase(), 'assessmentsByLevel', level, 'assessments')
+                    );
+                    let completedAssessments = 0;
+                    assessmentsSnap.forEach(d => {
+                      const scoreVal = (d.data() as any).score ?? 0;
+                      const scoreNum = typeof scoreVal === 'number' ? scoreVal : (typeof scoreVal === 'string' ? parseInt(scoreVal, 10) : 0);
+                      if (!isNaN(scoreNum) && scoreNum > 0) completedAssessments++;
+                    });
+                    
+                    // Get the total number of characters/words available for this language and level
+                    const totalAssessments = await getTotalAssessmentsForLevel(lang, level);
+                    
+                    // A lesson is completed when user has completed ALL available assessments with score > 0
+                    if (completedAssessments >= totalAssessments && totalAssessments > 0) {
+                      lessonsCompletedComputed++;
+                    }
+                  } catch {}
+                }
+              }
+            } catch {}
+            
+            // Count assessments across all languages and levels (not just preferred language)
+            let highScoreCount = 0;
+            for (const lang of languageIds) {
+              for (const level of ['beginner', 'intermediate'] as const) {
+                try {
+                  const assessmentsSnap = await getDocs(
+                    collection(db, 'users', userId, 'languages', lang.toLowerCase(), 'assessmentsByLevel', level, 'assessments')
+                  );
+                  assessmentsSnap.forEach(d => {
+                    const data = d.data() as Record<string, unknown>;
+                    const scoreVal = data.score;
+                    const scoreNum = typeof scoreVal === 'number' ? scoreVal : (typeof scoreVal === 'string' ? parseInt(scoreVal, 10) : 0);
+                    if (!isNaN(scoreNum) && scoreNum >= 0) highScoreCount++;
+                  });
+                } catch {}
+              }
+            }
+            
+            const totalPoints = basePoints + wordTrainerPoints;
+            const finalLessons = lessonsCompleted > 0 ? lessonsCompleted : lessonsCompletedComputed;
+            const usageData = { streakDays, lessonsCompleted: finalLessons, assessmentCount: highScoreCount, totalPoints };
+            setUsageStats(usageData);
+            setCachedData(usageCacheKey, usageData, 1 * 60 * 1000); // 1 minute cache for usage stats
+          } else {
+            const defaultData = { streakDays: 0, lessonsCompleted: 0, assessmentCount: 0, totalPoints: 0 };
+            setUsageStats(defaultData);
+            setCachedData(usageCacheKey, defaultData, 1 * 60 * 1000);
+          }
+        } catch (e) {
+          console.error('Error fetching usage stats:', e);
+          setUsageStats({ streakDays: 0, lessonsCompleted: 0, assessmentCount: 0, totalPoints: 0 });
+        }
+      };
+
+      // Start loading usage stats in background
+      loadUsageStats();
+
+      // Remove per-language points aggregation here; handled in usageStats above
+
+      // Load assessment counts and character totals in background (non-blocking)
+      const loadAssessmentData = async () => {
+        try {
+          const assessmentCacheKey = `assessments_${userId}_${prefLang}`;
+          const cachedAssessment = getCachedData(assessmentCacheKey);
+          
+          if (cachedAssessment && cachedAssessment.data) {
+            const data = cachedAssessment.data;
+            setBeginnerAssessmentCount(data.beginnerCount || 0);
+            setIntermediateAssessmentCount(data.intermediateCount || 0);
+            setBeginnerTotalItems(data.beginnerTotal || 0);
+            setIntermediateTotalItems(data.intermediateTotal || 0);
+            setLanguagePoints(data.assessmentPoints || 0);
+            return;
+          }
+          
+          const [beginnerAssessments, intermediateAssessments, beginnerChars, intermediateChars] = await Promise.all([
+            getDocs(collection(db, 'users', userId, 'languages', prefLang.toLowerCase(), 'assessmentsByLevel', 'beginner', 'assessments')),
+            getDocs(collection(db, 'users', userId, 'languages', prefLang.toLowerCase(), 'assessmentsByLevel', 'intermediate', 'assessments')),
+            getDocs(collection(db, 'languages', prefLang.toLowerCase(), 'characters', 'beginner', 'items')),
+            getDocs(collection(db, 'languages', prefLang.toLowerCase(), 'characters', 'intermediate', 'items'))
+          ]);
+
+          let beginnerCount = 0;
+          let intermediateCount = 0;
+          let assessmentPoints = 0;
+
+          beginnerAssessments.docs.forEach(doc => {
+            const data = doc.data();
+            const score = parseInt(data.score) || 0;
+            if (score > 0) {
+              beginnerCount++;
+              assessmentPoints += score;
+            }
+          });
+
+          intermediateAssessments.docs.forEach(doc => {
+            const data = doc.data();
+            const score = parseInt(data.score) || 0;
+            if (score > 0) {
+              intermediateCount++;
+              assessmentPoints += score;
+            }
+          });
+
+          const beginnerTotal = beginnerChars.docs.length;
+          const intermediateTotal = intermediateChars.docs.length;
+
+          const assessmentData = {
+            beginnerCount,
+            intermediateCount,
+            beginnerTotal,
+            intermediateTotal,
+            assessmentPoints
+          };
+
+          setBeginnerAssessmentCount(beginnerCount);
+          setIntermediateAssessmentCount(intermediateCount);
+          setBeginnerTotalItems(beginnerTotal);
+          setIntermediateTotalItems(intermediateTotal);
+          setLanguagePoints(assessmentPoints);
+          
+          // Cache the assessment data for 3 minutes
+          setCachedData(assessmentCacheKey, assessmentData, 3 * 60 * 1000);
+        } catch (e) {
+          console.error('Error fetching assessment data:', e);
+          // Set defaults
+          setBeginnerAssessmentCount(0);
+          setIntermediateAssessmentCount(0);
+          setBeginnerTotalItems(0);
+          setIntermediateTotalItems(0);
+          setLanguagePoints(0);
+        }
+      };
+
+      // Start loading assessment data in background
+      loadAssessmentData();
       
       // Set target language to user's preferred language
       if (profile) {
         setTargetLanguage(profile.preferredLanguage);
       }
-      setBeginnerAssessmentCount(beginnerCount);
-      setIntermediateAssessmentCount(intermediateCount);
-      setBeginnerTotalItems(beginnerTotal);
-      setIntermediateTotalItems(intermediateTotal);
 
     } catch (error) {
       console.error('Error loading user data:', error);
@@ -295,12 +657,39 @@ export default function UserDashboard() {
           return;
         }
         loadUserData(user.uid);
+        try {
+          const profileDocRef = doc(db, 'users', user.uid, 'profile', 'info');
+          const mainDocRef = doc(db, 'users', user.uid);
+          const unsubMain = onSnapshot(mainDocRef, (snap) => {
+            const d = snap.data() as { avatarUrl?: string; name?: string } | undefined;
+            if (d && (d.avatarUrl || d.name)) {
+              setUserProfile(prev => prev ? ({ ...prev, name: d.name || prev.name, avatarUrl: d.avatarUrl || prev.avatarUrl }) : prev);
+            }
+          });
+          const unsubProfile = onSnapshot(profileDocRef, (snap) => {
+            if (snap.exists()) {
+              const d = snap.data() as { avatarUrl?: string; name?: string };
+              if (d && (d.avatarUrl || d.name)) {
+                setUserProfile(prev => prev ? ({ ...prev, name: d.name || prev.name, avatarUrl: d.avatarUrl || prev.avatarUrl }) : prev);
+              }
+            }
+          });
+          (window as any).__polyglaiUserListeners = [unsubMain, unsubProfile];
+        } catch {}
+        // Load badges lazily after initial data load
+        setTimeout(() => loadUserBadges(user.uid), 1000);
       } else {
         router.push('/login');
       }
     });
-    return () => unsubscribe();
-  }, [router, loadUserData]);
+    return () => {
+      try {
+        const arr: Array<() => void> | undefined = (window as any).__polyglaiUserListeners;
+        if (Array.isArray(arr)) arr.forEach((fn) => { try { fn(); } catch {} });
+      } catch {}
+      unsubscribe();
+    };
+  }, [router, loadUserData, loadUserBadges]);
 
   // Load available TTS voices (some browsers populate asynchronously)
   useEffect(() => {
@@ -330,6 +719,30 @@ export default function UserDashboard() {
     setFeaturedLanguage(featured ? { id: featured.code, name: featured.name, flag: featured.flag } : null);
     setOtherLanguages(others.map(lang => ({ id: lang.code, name: lang.name, flag: lang.flag })));
   }, [preferredLanguage, levelUpLanguages]);
+
+  // Initialize active section from query param on first render
+  useEffect(() => {
+    const section = (searchParams?.get('section') || '').toLowerCase();
+    if (section === 'level-up' || section === 'translate' || section === 'profile' || section === 'dashboard') {
+      setActiveSection(section);
+    } else {
+      // If no section parameter, default to dashboard and update URL
+      setActiveSection('dashboard');
+      const url = new URL(window.location.href);
+      url.searchParams.set('section', 'dashboard');
+      window.history.replaceState({}, '', url.toString());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Update URL when activeSection changes
+  useEffect(() => {
+    if (activeSection && typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('section', activeSection);
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, [activeSection]);
 
   // Setup Level Up languages when preferred language changes
   useEffect(() => {
@@ -408,8 +821,7 @@ export default function UserDashboard() {
   const handleEditProfileOpen = () => {
     if (userProfile) {
       setEditName(userProfile.name || '');
-      setEditPreferredLanguage(userProfile.preferredLanguage || 'english');
-      setEditAvatar(userProfile.avatarUrl || '/updated avatars/3.svg');
+      setEditAvatar(normalizeAssetPath(userProfile.avatarUrl || '/updated avatars/3.svg'));
     }
     setShowEditProfile(true);
   };
@@ -423,8 +835,8 @@ export default function UserDashboard() {
       const userRef = doc(db, 'users', userProfile.uid);
       await updateDoc(userRef, {
         name: editName.trim(),
-        preferredLanguage: editPreferredLanguage,
         avatarUrl: editAvatar,
+        avatarURL: editAvatar,
         lastLoginAt: new Date()
       });
 
@@ -432,8 +844,8 @@ export default function UserDashboard() {
       const profileInfoRef = doc(db, 'users', userProfile.uid, 'profile', 'info');
       await setDoc(profileInfoRef, {
         name: editName.trim(),
-        preferredLanguage: editPreferredLanguage,
         avatarUrl: editAvatar,
+        avatarURL: editAvatar,
         email: userProfile.email || '',
         updatedAt: new Date()
       }, { merge: true });
@@ -442,21 +854,16 @@ export default function UserDashboard() {
       setUserProfile(prev => prev ? {
         ...prev,
         name: editName.trim(),
-        preferredLanguage: editPreferredLanguage,
         avatarUrl: editAvatar
       } : null);
-
-      // Update preferred language for translation
-      setPreferredLanguage(editPreferredLanguage);
-      setTargetLanguage(editPreferredLanguage);
 
       setShowEditProfile(false);
       
       // Show success message
-      alert('Profile updated successfully!');
+      showSuccess('Profile Updated', 'Profile updated successfully!');
     } catch (error) {
       console.error('Error updating profile:', error);
-      alert('Failed to update profile. Please try again.');
+      showError('Update Failed', 'Failed to update profile. Please try again.');
     } finally {
       setIsSavingProfile(false);
     }
@@ -465,13 +872,40 @@ export default function UserDashboard() {
   const handleEditProfileCancel = () => {
     setShowEditProfile(false);
     setEditName('');
-    setEditPreferredLanguage('english');
     setEditAvatar('/updated avatars/3.svg');
   };
 
   // Translation functions
   const translateText = async () => {
     if (!inputText.trim()) return;
+    
+    // Check for inappropriate content first
+    const contentValidation = ProfanityFilterService.validateContent(inputText, {
+      context: 'translation',
+      language: sourceLanguage,
+      recordProfanity: true
+    });
+    if (!contentValidation.isValid) {
+      // Show error dialog for profanity content
+      showConfirm(
+        'Content Blocked',
+        contentValidation.errorMessage || 'Content validation failed',
+        () => {
+          // Clear the output fields when content is blocked
+          setOutputText('');
+          setTransliterationText('');
+        },
+        () => {
+          // Focus back on text input
+          const textInput = document.querySelector('textarea[placeholder="Enter text to translate"]') as HTMLTextAreaElement;
+          if (textInput) {
+            textInput.focus();
+          }
+        },
+        'OK'
+      );
+      return;
+    }
     
     setIsTranslating(true);
     try {
@@ -509,7 +943,7 @@ export default function UserDashboard() {
     } catch (error) {
       console.error('Translation error:', error);
       // Show error to user
-      alert(`Translation failed: ${error instanceof Error ? error.message : String(error)}`);
+      showError('Translation Failed', `${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsTranslating(false);
     }
@@ -653,26 +1087,30 @@ export default function UserDashboard() {
   const startListening = async () => {
     // Check if Azure Speech Service is configured
     if (!isSpeechRecognitionSupported()) {
-      alert('Azure Speech Service not configured!\n\nPlease:\n1. Create a .env.local file in your web-cms directory\n2. Add your Azure credentials\n3. Restart the development server\n\nSee AZURE_SETUP.md for detailed instructions.');
+      showError('Azure Speech Not Configured', 'Please create .env.local with Azure credentials, then restart. See AZURE_SETUP.md.');
       return;
     }
     
     // Check if we've already failed speech recognition and should use fallback
     if (speechFailed) {
-      const userResponse = confirm(
-        'Speech recognition previously failed on this device. This often happens when Azure Speech Service is not accessible.\n\n' +
-        'Would you like to try speech recognition again, or would you prefer to use the text input instead?'
+      showConfirm(
+        'Speech Recognition Failed',
+        'Speech recognition previously failed on this device. This often happens when Azure Speech Service is not accessible.\n\nWould you like to try speech recognition again, or would you prefer to use the text input instead?',
+        () => {
+          // Reset the failed state and try again
+          setSpeechFailed(false);
+        },
+        () => {
+          // Focus on text input
+          const textInput = document.querySelector('textarea[placeholder="Enter text to translate"]') as HTMLTextAreaElement;
+          if (textInput) {
+            textInput.focus();
+          }
+        },
+        'Try Again',
+        'Use Text Input'
       );
-      if (!userResponse) {
-        // Focus on text input
-        const textInput = document.querySelector('textarea[placeholder="Enter text to translate"]') as HTMLTextAreaElement;
-        if (textInput) {
-          textInput.focus();
-      }
       return;
-      }
-      // Reset the failed state and try again
-      setSpeechFailed(false);
     }
 
     // Test Azure Speech Service capability first
@@ -683,87 +1121,88 @@ export default function UserDashboard() {
       console.log('Azure Speech Service capability test failed - offering alternative methods');
       
       // Offer user choice between alternative methods
-      const userChoice = confirm(
-        'Azure Speech Service is not accessible on this device.\n\n' +
-        'Would you like to try an alternative recording method, or would you prefer to type your text manually?\n\n' +
-        'Click "OK" to try alternative recording, "Cancel" to use text input.'
-      );
-      
-      if (userChoice) {
-        // Try alternative speech recognition
-        try {
-          setSpeechStatus('Starting alternative recording...');
-          const result = await startAlternativeSpeechRecognition();
+      showConfirm(
+        'Azure Speech Service Not Accessible',
+        'Azure Speech Service is not accessible on this device.\n\nWould you like to try an alternative recording method, or would you prefer to type your text manually?',
+        async () => {
+          // Try alternative speech recognition
+          try {
+            setSpeechStatus('Starting alternative recording...');
+            const result = await startAlternativeSpeechRecognition();
           
-          // Show result
-          const notification = document.createElement('div');
-          notification.className = 'fixed top-4 right-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded z-50 max-w-sm';
-          notification.innerHTML = `
-            <div class="flex items-start">
-              <div class="flex-shrink-0">
-                <svg class="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                </svg>
+            // Show result
+            const notification = document.createElement('div');
+            notification.className = 'fixed top-4 right-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded z-50 max-w-sm';
+            notification.innerHTML = `
+              <div class="flex items-start">
+                <div class="flex-shrink-0">
+                  <svg class="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                  </svg>
+                </div>
+                <div class="ml-3">
+                  <p class="text-sm font-medium">Alternative Recording Complete</p>
+                  <p class="text-sm mt-1">${result}</p>
+                  <button onclick="this.parentElement.parentElement.parentElement.remove()" class="mt-2 text-green-600 hover:text-green-500 text-sm font-medium">Dismiss</button>
+                </div>
               </div>
-              <div class="ml-3">
-                <p class="text-sm font-medium">Alternative Recording Complete</p>
-                <p class="text-sm mt-1">${result}</p>
-                <button onclick="this.parentElement.parentElement.parentElement.remove()" class="mt-2 text-green-600 hover:text-green-500 text-sm font-medium">Dismiss</button>
+            `;
+            document.body.appendChild(notification);
+            
+            // Auto-remove after 8 seconds
+            setTimeout(() => {
+              if (notification.parentElement) {
+                notification.remove();
+              }
+            }, 8000);
+            
+          } catch (error) {
+            console.error('Alternative speech recognition failed:', error);
+            setSpeechStatus('Alternative method failed');
+            
+            // Show error notification
+            const notification = document.createElement('div');
+            notification.className = 'fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded z-50 max-w-sm';
+            notification.innerHTML = `
+              <div class="flex items-start">
+                <div class="flex-shrink-0">
+                  <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                  </svg>
+                </div>
+                <div class="ml-3">
+                  <p class="text-sm font-medium">Alternative Method Failed</p>
+                  <p class="text-sm mt-1">${error instanceof Error ? error.message : 'Unknown error'}</p>
+                  <button onclick="this.parentElement.parentElement.parentElement.remove()" class="mt-2 text-red-600 hover:text-red-500 text-sm font-medium">Dismiss</button>
+                </div>
               </div>
-            </div>
-          `;
-          document.body.appendChild(notification);
+            `;
+            document.body.appendChild(notification);
+            
+            // Auto-remove after 8 seconds
+            setTimeout(() => {
+              if (notification.parentElement) {
+                notification.remove();
+              }
+            }, 8000);
+          }
+        },
+        () => {
+          // User chose text input
+          setSpeechFailed(true);
+          setSpeechStatus('');
           
-          // Auto-remove after 8 seconds
-      setTimeout(() => {
-            if (notification.parentElement) {
-              notification.remove();
-            }
-          }, 8000);
-          
-        } catch (error) {
-          console.error('Alternative speech recognition failed:', error);
-          setSpeechStatus('Alternative method failed');
-          
-          // Show error notification
-          const notification = document.createElement('div');
-          notification.className = 'fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded z-50 max-w-sm';
-          notification.innerHTML = `
-            <div class="flex items-start">
-              <div class="flex-shrink-0">
-                <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
-                </svg>
-              </div>
-              <div class="ml-3">
-                <p class="text-sm font-medium">Alternative Method Failed</p>
-                <p class="text-sm mt-1">${error instanceof Error ? error.message : 'Unknown error'}</p>
-                <button onclick="this.parentElement.parentElement.parentElement.remove()" class="mt-2 text-red-600 hover:text-red-500 text-sm font-medium">Dismiss</button>
-              </div>
-            </div>
-          `;
-          document.body.appendChild(notification);
-          
-          // Auto-remove after 8 seconds
+          // Focus on text input
           setTimeout(() => {
-            if (notification.parentElement) {
-              notification.remove();
-            }
-          }, 8000);
-        }
-      } else {
-        // User chose text input
-        setSpeechFailed(true);
-        setSpeechStatus('');
-        
-        // Focus on text input
-        setTimeout(() => {
-            const textInput = document.querySelector('textarea[placeholder="Enter text to translate"]') as HTMLTextAreaElement;
-            if (textInput) {
-              textInput.focus();
-            }
-        }, 500);
-      }
+              const textInput = document.querySelector('textarea[placeholder="Enter text to translate"]') as HTMLTextAreaElement;
+              if (textInput) {
+                textInput.focus();
+              }
+          }, 500);
+        },
+        'Try Alternative',
+        'Use Text Input'
+      );
       
       return;
     }
@@ -854,7 +1293,7 @@ export default function UserDashboard() {
   const speakText = (text: string) => {
     if (!text || !text.trim()) return;
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      alert('Text-to-speech is not supported in this browser.');
+      showInfo('Not Supported', 'Text-to-speech is not supported in this browser.');
       return;
     }
 
@@ -863,6 +1302,8 @@ export default function UserDashboard() {
     // Stop any current speech first to avoid queueing
     if (synth.speaking || synth.pending) {
       synth.cancel();
+      setIsSpeaking(false);
+      return;
     }
 
     const utterance = new SpeechSynthesisUtterance(text);
@@ -895,7 +1336,9 @@ export default function UserDashboard() {
 
     utterance.onerror = () => {
       console.error('TTS utterance error');
+      setIsSpeaking(false);
     };
+    utterance.onend = () => setIsSpeaking(false);
 
     // If voices are not yet loaded, wait briefly and try once more
     if ((!availableVoices || availableVoices.length === 0) && synth.getVoices().length === 0) {
@@ -907,11 +1350,13 @@ export default function UserDashboard() {
             || null;
           if (retryVoice) utterance.voice = retryVoice;
         }
+        setIsSpeaking(true);
         synth.speak(utterance);
       }, 250);
       return;
     }
 
+    setIsSpeaking(true);
     synth.speak(utterance);
   };
 
@@ -922,16 +1367,31 @@ export default function UserDashboard() {
     });
   };
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      // Allow PDF again (handled via server API)
       // Check file size (5MB limit)
       if (file.size > 5 * 1024 * 1024) {
-        alert('File size exceeds 5MB limit');
+        showError('File Too Large', 'File size exceeds 5MB limit');
         return;
       }
+      
       setSelectedFile(file);
       setFileTranslationResult('');
+      setFileTranslatedText('');
+      setFileTransliterationText('');
+      
+      // Auto-detect language from the file content
+      try {
+        const extractedText = await extractTextFromFile(file);
+        if (extractedText && extractedText.trim().length > 0) {
+          await detectAndSetSourceLanguage(extractedText);
+        }
+      } catch (error) {
+        console.warn('Failed to detect language from file:', error);
+        // Continue without language detection
+      }
     }
   };
 
@@ -939,20 +1399,101 @@ export default function UserDashboard() {
     if (!selectedFile) return;
     
     setIsTranslating(true);
+    setFileTranslationResult(''); // Clear previous results
+    setFileTranslatedText('');
+    setFileTransliterationText('');
+    
     try {
+      // Extract text from file
       const rawText = await extractTextFromFile(selectedFile);
 
-      if (!rawText) {
-        alert('No text detected. If you uploaded an image, please ensure it contains clear text.');
-
+      if (!rawText || rawText.trim().length === 0) {
+        showInfo('No Text Detected', 'If you uploaded an image, please ensure it contains clear text.');
         return;
       }
 
-      const translated = await translateViaLibre(rawText, sourceLanguage, targetLanguage);
-      setFileTranslationResult(`Translated content from ${selectedFile.name}:\n\n${translated}`);
+      // Check for inappropriate content in extracted text
+      const contentValidation = ProfanityFilterService.validateContent(rawText, {
+        context: 'file_upload',
+        language: sourceLanguage,
+        recordProfanity: true
+      });
+      if (!contentValidation.isValid) {
+        // Show error dialog for profanity content
+        showConfirm(
+          'Content Blocked',
+          contentValidation.errorMessage || 'Content validation failed',
+          () => {
+            // Clear the file translation results when content is blocked
+            setFileTranslationResult('');
+            setFileTranslatedText('');
+            setFileTransliterationText('');
+          },
+          () => {
+            // Focus back on file input
+            const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+            if (fileInput) {
+              fileInput.focus();
+            }
+          },
+          'OK'
+        );
+        return;
+      }
+
+      // Check if source and target languages are the same
+      if (sourceLanguage === targetLanguage) {
+        showInfo('Invalid Selection', 'Source and target languages cannot be the same.');
+        return;
+      }
+
+      // Show translating message
+      setFileTranslationResult('Translating...');
+      
+      // Get language codes from the language names
+      const sourceLangCode = languageMap[sourceLanguage]?.code || 'en';
+      const targetLangCode = languageMap[targetLanguage]?.code || 'en';
+      
+      let translatedText = '';
+      let transliterationText = '';
+      
+      // Check if Microsoft Translator is configured
+      if (MicrosoftTranslatorService.isConfigured()) {
+        // Use Microsoft Translator with transliteration support
+        if (MicrosoftTranslatorService.supportsTransliteration(targetLangCode)) {
+          const result = await MicrosoftTranslatorService.translateWithTransliteration({
+            text: rawText,
+            fromLanguage: sourceLangCode,
+            toLanguage: targetLangCode,
+          });
+          
+          translatedText = result.translation;
+          transliterationText = result.transliteration || '';
+        } else {
+          // For languages that don't support transliteration, just translate
+          translatedText = await MicrosoftTranslatorService.translateText({
+            text: rawText,
+            fromLanguage: sourceLangCode,
+            toLanguage: targetLangCode,
+          });
+        }
+      } else {
+        // Fallback to LibreTranslate/Google Translate if Microsoft Translator not configured
+        translatedText = await translateViaLibre(rawText, sourceLanguage, targetLanguage);
+      }
+      
+      // Store translated text and transliteration separately
+      setFileTranslatedText(translatedText);
+      setFileTransliterationText(transliterationText);
+      setFileTranslationResult(translatedText); // Keep for download functionality
+      
     } catch (error) {
       console.error('File translation error:', error);
-      alert((error as Error)?.message || 'Failed to translate the file.');
+      const errorMessage = (error as Error)?.message || 'Failed to translate the file.';
+      
+      // Show error message to user
+      setFileTranslationResult(`Error: ${errorMessage}\n\nPlease try again or check your internet connection.`);
+      showError('Operation Failed', errorMessage);
     } finally {
       setIsTranslating(false);
     }
@@ -967,13 +1508,20 @@ export default function UserDashboard() {
   };
 
   const downloadTranslation = () => {
-    if (!fileTranslationResult) return;
+    if (!fileTranslatedText || !selectedFile) return;
     
-    const blob = new Blob([fileTranslationResult], { type: 'text/plain' });
+    // Create a more descriptive filename
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+    const filename = `translated_${sourceLanguage}_to_${targetLanguage}_${timestamp}.txt`;
+    
+    // Include transliteration if available
+    const content = fileTranslatedText + (fileTransliterationText ? `\n\nPronunciation: ${fileTransliterationText}` : '');
+    
+    const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `translated_${selectedFile?.name || 'file'}.txt`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -991,41 +1539,167 @@ export default function UserDashboard() {
     setTransliterationText('');
   };
 
-  // Try translating text via LibreTranslate public instance; fallback to original text if unavailable
+  // Try translating text via LibreTranslate public instance; fallback to Google Translate if unavailable
   const translateViaLibre = async (text: string, source: string, target: string): Promise<string> => {
     try {
       const sourceCode = libreLangMap[source] || 'auto';
       const targetCode = libreLangMap[target] || 'en';
+      
+      // Try LibreTranslate first
       const resp = await fetch('https://libretranslate.de/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ q: text, source: sourceCode, target: targetCode, format: 'text' }),
       });
-      if (!resp.ok) throw new Error('LibreTranslate failed');
+      
+      if (!resp.ok) throw new Error(`LibreTranslate API error: ${resp.status}`);
+      
       const data = await resp.json();
-      if (data && data.translatedText) return data.translatedText as string;
-      throw new Error('No translatedText');
-    } catch {
-      console.warn('LibreTranslate failed, returning original text');
-      return text;
+      if (data && data.translatedText) {
+        console.log('LibreTranslate successful');
+        return data.translatedText as string;
+      }
+      throw new Error('No translatedText from LibreTranslate');
+    } catch (error) {
+      console.warn('LibreTranslate failed:', error);
+      
+      // Fallback to Google Translate
+      try {
+        return await translateViaGoogle(text, source, target);
+      } catch (googleError) {
+        console.error('Both LibreTranslate and Google Translate failed:', googleError);
+        throw new Error('Translation failed. Please check your internet connection and try again.');
+      }
+    }
+  };
+
+  // Fallback translation using Google Translate
+  const translateViaGoogle = async (text: string, source: string, target: string): Promise<string> => {
+    try {
+      const sourceCode = libreLangMap[source] || 'auto';
+      const targetCode = libreLangMap[target] || 'en';
+      
+      // Use Google Translate API (free tier)
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceCode}&tl=${targetCode}&dt=t&q=${encodeURIComponent(text)}`;
+      
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Google Translate API error: ${response.status}`);
+      
+      const data = await response.json();
+      if (data && data[0] && data[0][0] && data[0][0][0]) {
+        console.log('Google Translate successful');
+        return data[0].map((item: any) => item[0]).join('');
+      }
+      throw new Error('No translation from Google Translate');
+    } catch (error) {
+      console.error('Google Translate failed:', error);
+      throw error;
     }
   };
 
   const extractTextFromImage = async (file: File, langHint: string): Promise<string> => {
     const lang = ocrLanguageMap[langHint] || 'eng';
     const { data } = await Tesseract.recognize(file, lang);
-    return (data.text || '').trim();
+    const raw = (data.text || '').trim();
+    // Heuristics to filter out random OCR garbage from images without text
+    const confidence = typeof data.confidence === 'number' ? data.confidence : 0;
+    const words: Array<{ text?: string; confidence?: number }> = Array.isArray((data as any).words) ? (data as any).words : [];
+    const highConfWordExists = words.some(w => (w?.confidence || 0) >= 70 && (w?.text || '').trim().length >= 2);
+    const meaningful = raw
+      // keep common unicode letter ranges (Latin-1, CJK, Hiragana/Katakana, Hangul) and digits/spaces
+      .replace(/[^A-Za-z0-9\u00C0-\u017F\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF\s]/g, '')
+      .trim();
+    const meaningfulChars = meaningful.replace(/\s+/g, '').length;
+    if (meaningfulChars < 5 && !highConfWordExists) {
+      return '';
+    }
+    if (confidence < 50 && !highConfWordExists) {
+      return '';
+    }
+    return raw;
+  };
+
+  // Extract text content from a PDF file using pdf.js in the browser
+  const extractTextFromPdf = async (file: File): Promise<string> => {
+    const arrayBuffer = await file.arrayBuffer();
+    // Use legacy build and disable worker to avoid CDN/CSP issues
+    const pdfModule: any = await import('pdfjs-dist/legacy/build/pdf');
+    const pdfjsLib: any = (pdfModule && pdfModule.default) ? pdfModule.default : pdfModule;
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer, useWorker: false });
+    const pdf = await loadingTask.promise;
+    // Enforce single-page PDFs only
+    if (pdf.numPages > 1) {
+      throw new Error('PDF not supported: more than 1 page. Please upload a single-page PDF.');
+    }
+    let fullText = '';
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      const pageText = (textContent.items || [])
+        .map((item: any) => (item && item.str ? item.str : ''))
+        .join(' ');
+      fullText += (pageNum > 1 ? '\n\n' : '') + pageText;
+    }
+    // Enforce 1000 character limit for PDF text
+    if (fullText.trim().length > 1000) {
+      throw new Error('PDF not supported: exceeds 1000 characters. Please upload a shorter PDF.');
+    }
+    return fullText.trim();
   };
 
   const extractTextFromFile = async (file: File): Promise<string> => {
     if (file.type.startsWith('image/')) {
       return extractTextFromImage(file, sourceLanguage);
     }
-    if (file.type === 'text/plain') {
-      const text = await file.text();
-      return text.trim();
+    // Delegate .pdf, .rtf, and .txt to server API for reliable parsing and limits
+    if (
+      file.type === 'application/pdf' ||
+      file.name.toLowerCase().endsWith('.pdf') ||
+      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      file.type === 'application/docx' ||
+      file.name.toLowerCase().endsWith('.docx') ||
+      file.type === 'application/rtf' ||
+      file.type === 'text/rtf' ||
+      file.name.toLowerCase().endsWith('.rtf') ||
+      file.type === 'text/plain' ||
+      file.name.toLowerCase().endsWith('.txt')
+    ) {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/extract-text', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to extract text');
+      }
+      const text = (data?.text || '').trim();
+      return text;
     }
-    throw new Error('Unsupported file type. Please upload an image or .txt file.');
+    throw new Error('Unsupported file type. Please upload a PDF, RTF, image, or .txt file.');
+  };
+
+  // Detect language of the extracted text and update source language
+  const detectAndSetSourceLanguage = async (text: string) => {
+    try {
+      let detectedLanguageCode: string;
+      
+      if (MicrosoftTranslatorService.isConfigured()) {
+        // Use Microsoft Translator for accurate detection
+        detectedLanguageCode = await MicrosoftTranslatorService.detectLanguage(text);
+      } else {
+        // Use fallback pattern matching
+        detectedLanguageCode = MicrosoftTranslatorService.fallbackLanguageDetection(text);
+      }
+      
+      // Convert language code to display name and update source language
+      const detectedLanguageName = codeToLanguageName[detectedLanguageCode];
+      if (detectedLanguageName) {
+        setSourceLanguage(detectedLanguageName);
+        console.log('🔍 Auto-detected source language:', detectedLanguageName);
+      }
+    } catch (error) {
+      console.warn('Language detection failed:', error);
+      // Don't show error to user, just continue with current source language
+    }
   };
 
   // Handle language selection for Level Up
@@ -1070,7 +1744,7 @@ export default function UserDashboard() {
       return (lang as { [key: string]: string })[key] || 'money';
     };
 
-    const langCode = selectedLanguage?.id || 'english';
+    const langCode = (selectedLanguage?.id || preferredLanguage || 'english').toLowerCase();
     const text = getSampleText(langCode, difficulty);
     const url = `/eval?language=${encodeURIComponent(langCode)}&level=${encodeURIComponent(difficulty)}&text=${encodeURIComponent(text)}`;
     router.push(url);
@@ -1100,10 +1774,47 @@ export default function UserDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#0277BD] mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading your dashboard...</p>
+      <div className="min-h-screen bg-gray-50 flex">
+        {/* Sidebar Skeleton */}
+        <div className="w-64 h-screen sticky top-0 bg-white shadow-lg">
+          <div className="p-4 border-b border-gray-200">
+            <div className="h-8 bg-gray-200 rounded animate-pulse"></div>
+          </div>
+          <div className="p-4 space-y-4">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="h-10 bg-gray-200 rounded animate-pulse"></div>
+            ))}
+          </div>
+        </div>
+        
+        {/* Main Content Skeleton */}
+        <div className="flex-1 p-8">
+          <div className="mb-8">
+            <div className="h-8 bg-gray-200 rounded w-64 mb-4 animate-pulse"></div>
+            <div className="h-4 bg-gray-200 rounded w-96 animate-pulse"></div>
+          </div>
+          
+          <SkeletonStats />
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="bg-white rounded-lg shadow-md p-6 animate-pulse">
+              <div className="h-6 bg-gray-200 rounded w-48 mb-4"></div>
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-4 bg-gray-200 rounded"></div>
+                ))}
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-lg shadow-md p-6 animate-pulse">
+              <div className="h-6 bg-gray-200 rounded w-48 mb-4"></div>
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-4 bg-gray-200 rounded"></div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -1112,7 +1823,7 @@ export default function UserDashboard() {
   return (
     <div className="min-h-screen bg-gray-50 flex">
       {/* Sidebar */}
-      <div className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-white shadow-lg relative transition-all duration-300 ease-in-out`}>
+      <div className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} h-screen sticky top-0 bg-white shadow-lg relative transition-all duration-300 ease-in-out overflow-hidden`}>
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
           <div className="overflow-hidden">
             {!isSidebarCollapsed && (
@@ -1173,7 +1884,7 @@ export default function UserDashboard() {
               <svg className={`w-5 h-5 ${isSidebarCollapsed ? '' : 'mr-3'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
               </svg>
-              {!isSidebarCollapsed && 'Translate'}
+              {!isSidebarCollapsed && 'Snap & Go'}
             </button>
             
             <button
@@ -1209,15 +1920,16 @@ export default function UserDashboard() {
         </nav>
         
         <div className={`absolute bottom-0 ${isSidebarCollapsed ? 'w-20' : 'w-64'} p-4 border-t border-gray-200`}>
-          <button
-            onClick={handleSignOut}
+          <Link
+            href="/settings"
             className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center' : ''} px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors`}
           >
             <svg className={`w-5 h-5 ${isSidebarCollapsed ? '' : 'mr-3'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.607 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-            {!isSidebarCollapsed && 'Sign Out'}
-          </button>
+            {!isSidebarCollapsed && 'Settings'}
+          </Link>
         </div>
       </div>
 
@@ -1256,8 +1968,8 @@ export default function UserDashboard() {
                       strokeWidth="2"
                       strokeDasharray={`${Math.min(((() => {
                         // Calculate assessment completion percentage (beginner + intermediate only)
-                        const totalBeginnerIntermediate = beginnerTotalItems + intermediateTotalItems;
-                        const completedBeginnerIntermediate = beginnerAssessmentCount + intermediateAssessmentCount;
+                        const totalBeginnerIntermediate = (beginnerTotalItems || 0) + (intermediateTotalItems || 0);
+                        const completedBeginnerIntermediate = (beginnerAssessmentCount || 0) + (intermediateAssessmentCount || 0);
                         const percentage = totalBeginnerIntermediate > 0 
                           ? (completedBeginnerIntermediate / totalBeginnerIntermediate) * 100
                           : 0;
@@ -1269,8 +1981,8 @@ export default function UserDashboard() {
                     <span className="text-lg font-bold text-[#0277BD]">
                       {(() => {
                         // Calculate assessment completion percentage (beginner + intermediate only)
-                        const totalBeginnerIntermediate = beginnerTotalItems + intermediateTotalItems;
-                        const completedBeginnerIntermediate = beginnerAssessmentCount + intermediateAssessmentCount;
+                        const totalBeginnerIntermediate = (beginnerTotalItems || 0) + (intermediateTotalItems || 0);
+                        const completedBeginnerIntermediate = (beginnerAssessmentCount || 0) + (intermediateAssessmentCount || 0);
                         const percentage = totalBeginnerIntermediate > 0 
                           ? (completedBeginnerIntermediate / totalBeginnerIntermediate) * 100
                           : 0;
@@ -1297,8 +2009,8 @@ export default function UserDashboard() {
                   ? 'grid-cols-1 lg:grid-cols-2'
                   : 'grid-cols-2'
               }`}>
-                {buildLevelProgressBar('Beginner', beginnerAssessmentCount, beginnerTotalItems, '#0277BD')}
-                {buildLevelProgressBar('Intermediate', intermediateAssessmentCount, intermediateTotalItems, '#1A237E')}
+                {buildLevelProgressBar('Beginner', beginnerAssessmentCount || 0, beginnerTotalItems || 0, '#0277BD')}
+                {buildLevelProgressBar('Intermediate', intermediateAssessmentCount || 0, intermediateTotalItems || 0, '#1A237E')}
               </div>
             </div>
 
@@ -1344,6 +2056,11 @@ export default function UserDashboard() {
 
                 {isExpanded && (
                   <div className="space-y-3 mt-4 pt-4 border-t border-gray-200">
+                    {getAccentInfo(preferredLanguage) && (
+                      <p className="text-sm text-gray-600 text-center mb-2">
+                        {getAccentInfo(preferredLanguage)}
+                      </p>
+                    )}
                     <button 
                       onClick={() => handleDifficultySelect('beginner')}
                       className="w-full px-4 py-3 border-2 border-[#0277BD] text-[#0277BD] rounded-lg hover:bg-[#0277BD] hover:text-white transition-colors font-medium"
@@ -1399,7 +2116,7 @@ export default function UserDashboard() {
                 
                 <button 
                   onClick={() => {
-                    const url = `/word-trainer?language=${encodeURIComponent(preferredLanguage)}&level=beginner`;
+                    const url = `/word-trainer?language=${encodeURIComponent(preferredLanguage)}`;
                     router.push(url);
                   }}
                   className="w-full bg-white text-[#29B6F6] px-6 py-3 rounded-lg font-bold hover:bg-gray-100 transition-colors flex items-center justify-center"
@@ -1412,65 +2129,50 @@ export default function UserDashboard() {
               </div>
             </div>
 
-            {/* What's New Section */}
+
+            {/* What's New Section - Always allow Advanced English evaluation */}
             <div className="mb-8">
-              <h2 className={`font-bold text-gray-900 mb-6 ${
-                isSidebarCollapsed ? 'text-xl lg:text-2xl' : 'text-2xl'
-              }`}>What&apos;s New</h2>
-              
-              <div className="bg-gradient-to-br from-[#29B6F6] to-[#0277BD] rounded-xl p-6 text-white">
-                <div className={`flex items-center mb-4 ${
-                  isSidebarCollapsed ? 'flex-col lg:flex-row text-center lg:text-left' : 'flex-row'
-                }`}>
-                  <div className={`w-12 h-12 bg-white rounded-full flex items-center justify-center ${
-                    isSidebarCollapsed ? 'mb-4 lg:mb-0 lg:mr-4' : 'mr-4'
-                  }`}>
-                    <svg className="w-6 h-6 text-[#29B6F6]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">What's New</h2>
+
+              <div className="rounded-xl border border-gray-200 p-6 bg-gradient-to-br from-[#29B6F6] to-[#0277BD] text-white shadow-sm">
+                <div className="flex items-start mb-4">
+                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mr-4">
+                    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
                     </svg>
                   </div>
-                  <div className={`${isSidebarCollapsed ? 'lg:flex-1 mb-4 lg:mb-0' : 'flex-1'}`}>
-                    <h3 className={`font-bold ${
-                      isSidebarCollapsed ? 'text-lg lg:text-xl' : 'text-xl'
-                    }`}>
-                      Advanced English Evaluation
-                    </h3>
-                    <p className="text-white/90">Try our new unscripted pronunciation assessment</p>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-bold">Advanced English Evaluation</h3>
+                    <p className="text-white/90">Try our new unscripted pronunciation assessment.</p>
                   </div>
                 </div>
-                
+
                 <div className="bg-white/20 rounded-lg p-4 mb-4">
-                  <h4 className="font-bold mb-2">New Features:</h4>
-                  <ul className="text-sm space-y-1 text-white/90">
-                    <li>• Unscripted conversation evaluation</li>
-                    <li>• Advanced pronunciation analysis</li>
-                    <li>• Real-time content assessment</li>
+                  <div className="text-sm font-semibold mb-1">New Features</div>
+                  <ul className="text-sm leading-6 text-white/95 list-disc pl-5">
+                    <li>Unscripted conversation evaluation</li>
+                    <li>Advanced pronunciation analysis</li>
+                    <li>Real-time content assessment</li>
                   </ul>
                 </div>
-                
-                <button 
-                  onClick={() => {
-                    if (preferredLanguage?.toLowerCase() !== 'english') {
-                      alert('Advanced English evaluation is only available for English language users');
-                      return;
-                    }
-                    handleDifficultySelect('advanced');
-                  }}
-                  className="w-full bg-white text-[#29B6F6] px-6 py-3 rounded-lg font-bold hover:bg-gray-100 transition-colors flex items-center justify-center"
+
+                <button
+                  onClick={() => router.push('/eval?language=english&level=advanced')}
+                  className="w-full bg-white text-[#29B6F6] hover:bg-gray-100 py-3 rounded-lg font-bold transition-colors flex items-center justify-center"
                 >
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                  <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 14a3 3 0 003-3V5a3 3 0 10-6 0v6a3 3 0 003 3zm7-3a7 7 0 01-14 0M12 19v2m-4 0h8" />
                   </svg>
                   Try Advanced English
                 </button>
               </div>
             </div>
+
           </div>
         )}
 
         {activeSection === 'translate' && (
           <div className={`${isSidebarCollapsed ? 'max-w-7xl' : 'max-w-6xl'} mx-auto`}>
-            <h1 className="text-3xl font-bold text-gray-900 mb-8">Translate</h1>
             
             {/* Translation Mode Selector */}
             <div className="flex mb-6 bg-gray-100 p-1 rounded-lg w-fit">
@@ -1493,6 +2195,16 @@ export default function UserDashboard() {
                 }`}
               >
                 File Translation
+              </button>
+              <button
+                onClick={() => setTranslationMode('camera')}
+                className={`px-6 py-2 rounded-md transition-all ${
+                  translationMode === 'camera'
+                    ? 'bg-[#0277BD] text-white shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Camera translate
               </button>
             </div>
 
@@ -1593,9 +2305,18 @@ export default function UserDashboard() {
                         onClick={() => speakText(inputText)}
                         className="p-2 hover:bg-gray-200 rounded-full transition-colors"
                       >
-                        <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 0 1 0 7.072m2.828-9.9a9 9 0 0 1 0 14.142M8.464 8.464a5 5 0 0 0 7.072 0M6.636 6.636a9 9 0 0 1 12.728 0" />
-                        </svg>
+                        {isSpeaking ? (
+                          <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                            <rect x="6" y="5" width="4" height="14" rx="1"></rect>
+                            <rect x="14" y="5" width="4" height="14" rx="1"></rect>
+                          </svg>
+                        ) : (
+                          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5l-6 6H2v2h3l6 6V5z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 9a3 3 0 010 6" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7a7 7 0 010 10" />
+                          </svg>
+                        )}
                       </button>
                     </div>
                     <button 
@@ -1613,7 +2334,16 @@ export default function UserDashboard() {
                   <div className="bg-gray-50 border border-gray-300 rounded-lg p-4">
                     <textarea
                       value={inputText}
-                      onChange={(e) => setInputText(e.target.value)}
+                      onChange={(e) => {
+                        const newValue = e.target.value;
+                        setInputText(newValue);
+                        
+                        // Clear output if input contains inappropriate content
+                        if (newValue && ProfanityFilterService.containsProfanity(newValue)) {
+                          setOutputText('');
+                          setTransliterationText('');
+                        }
+                      }}
                       placeholder="Enter text to translate"
                       className="w-full h-40 bg-transparent border-none outline-none resize-none text-gray-900 placeholder-gray-500"
                       maxLength={characterLimit}
@@ -1695,9 +2425,18 @@ export default function UserDashboard() {
                         onClick={() => speakText(outputText)}
                         className="p-2 hover:bg-gray-200 rounded-full transition-colors"
                       >
-                        <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 0 1 0 7.072m2.828-9.9a9 9 0 0 1 0 14.142M8.464 8.464a5 5 0 0 0 7.072 0M6.636 6.636a9 9 0 0 1 12.728 0" />
-                        </svg>
+                        {isSpeaking ? (
+                          <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                            <rect x="6" y="5" width="4" height="14" rx="1"></rect>
+                            <rect x="14" y="5" width="4" height="14" rx="1"></rect>
+                          </svg>
+                        ) : (
+                          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5l-6 6H2v2h3l6 6V5z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 9a3 3 0 010 6" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7a7 7 0 010 10" />
+                          </svg>
+                        )}
                       </button>
                     </div>
                     <button 
@@ -1821,7 +2560,7 @@ export default function UserDashboard() {
                 <div className="bg-white rounded-xl border-2 border-dashed border-gray-300 p-8 text-center hover:border-[#0277BD] transition-colors">
                   <input
                     type="file"
-                    accept=".txt,.pdf,.docx,.jpg,.jpeg,.png,.bmp,.tiff"
+                    accept=".txt,.rtf,.docx,.pdf,.jpg,.jpeg,.png,.bmp,.tiff"
                     onChange={handleFileSelect}
                     className="hidden"
                     id="file-upload"
@@ -1875,13 +2614,32 @@ export default function UserDashboard() {
                 )}
 
                 {/* File Translation Output */}
-                {fileTranslationResult && (
+                {fileTranslatedText && (
                   <div className="bg-[#F2F4FA] rounded-3xl p-6">
                     <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-semibold text-gray-900">Translated Content</h3>
+                      <div className="flex items-center space-x-3">
+                        <h3 className="font-semibold text-gray-900">Translated Content</h3>
+                        <button 
+                          onClick={() => speakText(fileTranslatedText)}
+                          className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+                        >
+                          {isSpeaking ? (
+                            <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                              <rect x="6" y="5" width="4" height="14" rx="1"></rect>
+                              <rect x="14" y="5" width="4" height="14" rx="1"></rect>
+                            </svg>
+                          ) : (
+                            <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5l-6 6H2v2h3l6 6V5z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 9a3 3 0 010 6" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7a7 7 0 010 10" />
+                            </svg>
+                          )}
+                        </button>
+                      </div>
                       <div className="flex space-x-2">
                         <button 
-                          onClick={() => copyToClipboard(fileTranslationResult)}
+                          onClick={() => copyToClipboard(fileTranslatedText)}
                           className="p-2 hover:bg-gray-200 rounded-full transition-colors"
                         >
                           <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1900,10 +2658,33 @@ export default function UserDashboard() {
                     </div>
                     
                     <div className="bg-gray-50 border border-gray-300 rounded-lg p-4 max-h-96 overflow-y-auto">
-                      <pre className="whitespace-pre-wrap text-gray-900 text-sm">{fileTranslationResult}</pre>
+                      <div className="space-y-3">
+                        <p className="text-gray-900 whitespace-pre-wrap">{fileTranslatedText}</p>
+                        {fileTransliterationText && (
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                            <p className="text-blue-700 text-sm font-medium mb-1">Pronunciation:</p>
+                            <p className="text-blue-900 italic whitespace-pre-wrap">{fileTransliterationText}</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Camera translate */}
+            {translationMode === 'camera' && (
+              <div className="space-y-6">
+                <div className="bg-white rounded-xl border-2 border-dashed border-gray-300 p-8 text-center">
+                  <div className="mx-auto w-16 h-16 bg-[#0277BD] rounded-full flex items-center justify-center mb-4">
+                    <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7h4l2-3h6l2 3h4a2 2 0 012 2v8a2 2 0 01-2 2H3a2 2 0 01-2-2V9a2 2 0 012-2zm9 3a4 4 0 100 8 4 4 0 000-8z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Mobile-only feature</h3>
+                  <p className="text-gray-600">Camera translate is only available in the PolyglAI mobile app. Please use the app to access this feature.</p>
+                </div>
               </div>
             )}
           </div>
@@ -1941,6 +2722,11 @@ export default function UserDashboard() {
                     >
                       <div className="border-t border-gray-200 pt-4">
                         <h3 className="text-lg font-bold text-gray-900 mb-3 text-center">Select Difficulty</h3>
+                        {getAccentInfo(selectedLanguage?.id || featuredLanguage?.id || preferredLanguage || '') && (
+                          <p className="text-sm text-gray-600 text-center mb-3">
+                            {getAccentInfo(selectedLanguage?.id || featuredLanguage?.id || preferredLanguage || '')}
+                          </p>
+                        )}
                         <div className="space-y-2">
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDifficultySelect('beginner'); }}
@@ -1987,6 +2773,11 @@ export default function UserDashboard() {
                       <div className={`overflow-hidden transition-all duration-300 ${selectedLanguage && selectedLanguage.id === language.id ? 'max-h-64 opacity-100 mt-3' : 'max-h-0 opacity-0'} `}>
                         <div className="border-t border-gray-200 pt-3">
                           <h4 className="text-md font-bold text-gray-900 mb-2 text-center">Select Difficulty</h4>
+                          {getAccentInfo(language.id) && (
+                            <p className="text-xs text-gray-600 text-center mb-2">
+                              {getAccentInfo(language.id)}
+                            </p>
+                          )}
                           <div className="space-y-2">
                             <button
                               onClick={(e) => { e.stopPropagation(); handleDifficultySelect('beginner'); }}
@@ -2066,7 +2857,7 @@ export default function UserDashboard() {
                       <h1 className="text-3xl font-bold text-gray-900 mb-2">
                         {userProfile?.name || 'User'}
                       </h1>
-                      <p className="text-gray-600 text-lg">Joined August 2025</p>
+                      <p className="text-gray-600 text-lg">{getJoinedDateText(userProfile?.createdAt)}</p>
                     </>
                   ) : (
                     <>
@@ -2078,75 +2869,11 @@ export default function UserDashboard() {
                         className="w-full max-w-md px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-4"
                         placeholder="Enter your name"
                       />
-                      <div className="max-w-xl">
-                        <label className="block text-sm font-medium text-gray-700 mb-3">Preferred Language</label>
-                        <div className="space-y-2">
-                          {[
-                            { code: 'english', name: 'English', flag: '🇺🇸' },
-                            { code: 'mandarin', name: 'Mandarin', flag: '🇨🇳' },
-                            { code: 'spanish', name: 'Español', flag: '🇪🇸' },
-                            { code: 'japanese', name: 'Nihongo', flag: '🇯🇵' },
-                            { code: 'korean', name: 'Hangugeo', flag: '🇰🇷' },
-                          ].map((language) => (
-                            <button
-                              key={language.code}
-                              onClick={() => setEditPreferredLanguage(language.code)}
-                              className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-colors ${
-                                editPreferredLanguage === language.code
-                                  ? 'border-blue-500 bg-blue-50'
-                                  : 'border-gray-200 hover:border-gray-300'
-                              }`}
-                              type="button"
-                            >
-                              <span className="text-xl">{language.flag}</span>
-                              <span className={`font-medium ${
-                                editPreferredLanguage === language.code ? 'text-blue-700' : 'text-gray-700'
-                              }`}>
-                                {language.name}
-                              </span>
-                              {editPreferredLanguage === language.code && (
-                                <svg className="w-5 h-5 text-blue-500 ml-auto" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                </svg>
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
                     </>
                   )}
                 </div>
                 
-                {/* Action Buttons */}
-                {!showEditProfile ? (
-                  <button 
-                    onClick={handleEditProfileOpen}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors font-medium"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                    Edit Profile
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={handleEditProfileCancel}
-                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-                      type="button"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleEditProfileSave}
-                      disabled={isSavingProfile || !editName.trim()}
-                      className="px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white rounded-lg transition-colors font-medium"
-                      type="button"
-                    >
-                      {isSavingProfile ? 'Saving...' : 'Save Changes'}
-                    </button>
-                  </div>
-                )}
+                {/* Action Buttons: Removed inline Edit Profile; direct users to Settings > Profile */}
               </div>
             </div>
 
@@ -2157,89 +2884,122 @@ export default function UserDashboard() {
               {/* Stats Cards Grid - 2x2 layout */}
               <div className="grid grid-cols-2 gap-4">
                 {/* Day Streak */}
-                <div className="bg-white rounded-2xl p-4 shadow-sm border-2 border-blue-200">
+                <button
+                  onClick={() => showInfo('Day Streak', 'Your daily learning streak! Use the app every day to maintain your streak. You can restore a broken streak up to 3 times if you forget to use the app.')}
+                  className="bg-white rounded-2xl p-4 shadow-sm border-2 border-blue-200 text-left hover:shadow transition-shadow"
+                >
                   <div className="flex items-center">
                     <img src="/updated stats/streak.svg" alt="Streak" className="w-7 h-7 mr-3" />
                     <div>
-                      <p className="text-lg font-bold text-gray-900">7</p>
+                      <p className="text-lg font-bold text-gray-900">{usageStats?.streakDays ?? 0}</p>
                       <p className="text-xs text-gray-600">Day Streak</p>
                     </div>
                   </div>
-                </div>
+                </button>
 
                 {/* Lessons Passed */}
-                <div className="bg-white rounded-2xl p-4 shadow-sm border-2 border-blue-200">
+                <button
+                  onClick={() => showInfo('Lessons Passed', "Total number of lessons you've completed across all languages. Each lesson helps you improve your language skills and earn points.")}
+                  className="bg-white rounded-2xl p-4 shadow-sm border-2 border-blue-200 text-left hover:shadow transition-shadow"
+                >
                   <div className="flex items-center">
                     <img src="/updated stats/lessons.svg" alt="Lessons" className="w-7 h-7 mr-3" />
                     <div>
-                      <p className="text-lg font-bold text-gray-900">0</p>
+                      <p className="text-lg font-bold text-gray-900">{usageStats?.lessonsCompleted ?? 0}</p>
                       <p className="text-xs text-gray-600">Lessons Passed</p>
                     </div>
                   </div>
-                </div>
+                </button>
 
                 {/* Assessments */}
-                <div className="bg-white rounded-2xl p-4 shadow-sm border-2 border-blue-200">
+                <button
+                  onClick={() => showInfo('Assessments', 'Total pronunciation assessments completed. These help track your speaking progress and pronunciation accuracy in different languages.')}
+                  className="bg-white rounded-2xl p-4 shadow-sm border-2 border-blue-200 text-left hover:shadow transition-shadow"
+                >
                   <div className="flex items-center">
                     <img src="/updated stats/assessments.svg" alt="Assessments" className="w-7 h-7 mr-3" />
                     <div>
-                      <p className="text-lg font-bold text-gray-900">0</p>
+                      <p className="text-lg font-bold text-gray-900">{usageStats?.assessmentCount ?? 0}</p>
                       <p className="text-xs text-gray-600">Assessments</p>
                     </div>
                   </div>
-                </div>
+                </button>
 
                 {/* Points */}
-                <div className="bg-white rounded-2xl p-4 shadow-sm border-2 border-blue-200">
+                <button
+                  onClick={() => showInfo('Points', 'Your total points earned from all activities! Points are awarded for completing assessments, lessons, challenges, and maintaining streaks.')}
+                  className="bg-white rounded-2xl p-4 shadow-sm border-2 border-blue-200 text-left hover:shadow transition-shadow"
+                >
                   <div className="flex items-center">
                     <img src="/updated stats/points.svg" alt="Points" className="w-7 h-7 mr-3" />
                     <div>
-                      <p className="text-lg font-bold text-gray-900">{languagePoints}</p>
+                      <p className="text-lg font-bold text-gray-900">{usageStats?.totalPoints ?? languagePoints}</p>
                       <p className="text-xs text-gray-600">Points</p>
                     </div>
                   </div>
-                </div>
+                </button>
               </div>
             </div>
 
             {/* Achievements Section */}
             <div className="mb-8">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">Achievements</h2>
-                <button className="text-[#29B6F6] font-semibold text-sm hover:text-[#0277BD] transition-colors">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">Achievements</h2>
+                  {!badgeLoading && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      {userBadges ? Object.values(userBadges).filter(Boolean).length : 0} out of 9 badges unlocked
+                    </p>
+                  )}
+                </div>
+                <button 
+                  onClick={() => router.push('/achievements')}
+                  className="text-[#29B6F6] font-semibold text-sm hover:text-[#0277BD] transition-colors"
+                >
                   VIEW ALL
                 </button>
               </div>
               
-              {/* Achievement badges preview */}
+              {/* Achievement badges preview with names */}
               <div className="h-30 flex justify-evenly">
-                <div className="flex-1 mx-2">
-                  <div className="w-full h-24 rounded-2xl shadow-md overflow-hidden">
-                    <img 
-                      src="/badges/rookie_linguist.svg" 
-                      alt="Rookie Linguist"
-                      className="w-full h-full object-contain grayscale"
-                    />
+                {badgeLoading ? (
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#29B6F6]"></div>
                   </div>
-                </div>
-                <div className="flex-1 mx-2">
-                  <div className="w-full h-24 rounded-2xl shadow-md overflow-hidden">
-                    <img 
-                      src="/badges/word_explorer.svg" 
-                      alt="Word Explorer"
-                      className="w-full h-full object-contain grayscale"
-                    />
-                  </div>
-                </div>
-                <div className="flex-1 mx-2">
-                  <div className="w-full h-24 rounded-2xl shadow-md overflow-hidden">
-                    <img 
-                      src="/badges/voice_breaker.svg" 
-                      alt="Voice Breaker"
-                      className="w-full h-full object-contain grayscale"
-                    />
-                  </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="flex-1 mx-2">
+                      <div className="w-full h-24 rounded-2xl shadow-md overflow-hidden bg-transparent">
+                        <img 
+                          src="/badges/rookie_linguist.png" 
+                          alt="Rookie Linguist"
+                          className={`w-full h-full object-contain ${userBadges?.rookie_linguist ? '' : 'grayscale'}`}
+                        />
+                      </div>
+                      <div className="mt-2 text-center text-xs font-medium text-gray-700 truncate">Rookie Linguist</div>
+                    </div>
+                    <div className="flex-1 mx-2">
+                      <div className="w-full h-24 rounded-2xl shadow-md overflow-hidden bg-transparent">
+                        <img 
+                          src="/badges/word_explorer.png" 
+                          alt="Word Explorer"
+                          className={`w-full h-full object-contain ${userBadges?.word_explorer ? '' : 'grayscale'}`}
+                        />
+                      </div>
+                      <div className="mt-2 text-center text-xs font-medium text-gray-700 truncate">Word Explorer</div>
+                    </div>
+                    <div className="flex-1 mx-2">
+                      <div className="w-full h-24 rounded-2xl shadow-md overflow-hidden bg-transparent">
+                        <img 
+                          src="/badges/voice_breaker.png" 
+                          alt="Voice Breaker"
+                          className={`w-full h-full object-contain ${userBadges?.voice_breaker ? '' : 'grayscale'}`}
+                        />
+                      </div>
+                      <div className="mt-2 text-center text-xs font-medium text-gray-700 truncate">Voice Breaker</div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -2247,38 +3007,61 @@ export default function UserDashboard() {
             <div className="mb-8">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-gray-900">Challenges</h2>
-                <button className="text-[#29B6F6] font-semibold text-sm hover:text-[#0277BD] transition-colors">
+                <button 
+                  onClick={() => router.push('/challenges')}
+                  className="text-[#29B6F6] font-semibold text-sm hover:text-[#0277BD] transition-colors"
+                >
                   VIEW ALL
                 </button>
               </div>
               
-              {/* Challenge cards preview */}
+              {/* Challenge cards preview: show up to 3 unlocked */}
               <div className="space-y-3">
-                <div className="bg-white rounded-xl p-4 shadow-sm border-2 border-[#2AC3F4]">
-                  <div className="flex items-center">
-                    {/* Badge icon */}
-                    <div className="w-12 h-12 rounded-lg shadow-sm overflow-hidden mr-3">
-                      <img 
-                        src="/badges/rookie_linguist.svg" 
-                        alt="Rookie Linguist"
-                        className="w-full h-full object-contain grayscale"
-                      />
-                    </div>
-                    
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-sm text-gray-900 mb-1">Rookie Linguist</h4>
-                      <p className="text-xs text-gray-600 mb-1">Complete your first lesson in any language</p>
-                    </div>
-                    
-                    {/* Status indicator */}
-                    <div className="bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs font-medium">
-                      <div className="flex items-center">
-                        <span className="mr-1">🔒</span>
-                        Locked
-                      </div>
-                    </div>
+                {badgeLoading ? (
+                  <div className="flex items-center justify-center py-4">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#29B6F6]"></div>
                   </div>
-                </div>
+                ) : (
+                  (() => {
+                    const allChallenges = [
+                      { key: 'rookie_linguist', name: 'Rookie Linguist', desc: 'Complete your first lesson in any language', img: '/badges/rookie_linguist.png' },
+                      { key: 'word_explorer', name: 'Word Explorer', desc: 'Learn 10 new vocabulary words using the Word Trainer', img: '/badges/word_explorer.png' },
+                      { key: 'voice_breaker', name: 'Voice Breaker', desc: 'Finish your first pronunciation assessment successfully', img: '/badges/voice_breaker.png' },
+                      { key: 'daily_voyager', name: 'Daily Voyager', desc: 'Maintain a 3-day learning streak', img: '/badges/daily_voyager.png' },
+                      { key: 'phrase_master', name: 'Phrase Master', desc: 'Translate and practice 25 sentences (intermediate)', img: '/badges/phrase_master.png' },
+                      { key: 'fluent_flyer', name: 'Fluent Flyer', desc: 'Pass 20 pronunciation assessments in one language', img: '/badges/fluent_flyer.png' },
+                      { key: 'polyglot_in_progress', name: 'Polyglot in Progress', desc: 'Complete lessons in 3 different languages', img: '/badges/polyglot_in_progress.png' },
+                      { key: 'crown_of_fluency', name: 'Crown of Fluency', desc: 'Score 90+ in an assessment 5 times', img: '/badges/crown_of_fluency.png' },
+                      { key: 'legend_of_polyglai', name: 'Legend of PolyglAI', desc: 'Unlock all achievements in the app', img: '/badges/legend_of_polyglai.png' },
+                    ];
+                    const locked = allChallenges.filter(c => !(userBadges as any)?.[c.key]);
+                    const toShow = locked.slice(0, 3);
+                    if (toShow.length === 0) {
+                      return (
+                        <div className="text-sm text-gray-600">All challenges unlocked! Great job.</div>
+                      );
+                    }
+                    return toShow.map((c) => (
+                      <div key={c.key} className="bg-white rounded-xl p-4 shadow-sm border-2 border-[#2AC3F4]">
+                        <div className="flex items-center">
+                          <div className="w-12 h-12 rounded-lg shadow-sm overflow-hidden mr-3 bg-transparent">
+                            <img src={c.img} alt={c.name} className="w-full h-full object-contain grayscale" />
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="font-semibold text-sm text-gray-900 mb-1">{c.name}</h4>
+                            <p className="text-xs text-gray-600 mb-1">{c.desc}</p>
+                          </div>
+                          <div className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                            <div className="flex items-center">
+                              <span className="mr-1">🔒</span>
+                              Locked
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ));
+                  })()
+                )}
               </div>
             </div>
           </div>
@@ -2289,6 +3072,37 @@ export default function UserDashboard() {
 
       {/* Performance Monitor */}
       <PerformanceMonitor />
+      
+      {/* Custom Dialog */}
+      {dialogState.isOpen && dialogState.options && (
+        <CustomDialog
+          isOpen={dialogState.isOpen}
+          onClose={hideDialog}
+          title={dialogState.options.title}
+          message={dialogState.options.message}
+          type={dialogState.options.type}
+          onConfirm={dialogState.options.onConfirm}
+          onCancel={dialogState.options.onCancel}
+          confirmText={dialogState.options.confirmText}
+          cancelText={dialogState.options.cancelText}
+          showCancel={dialogState.options.type === 'confirm'}
+        />
+      )}
+      {/* Custom Dialog */}
+      {dialogState.isOpen && dialogState.options && (
+        <CustomDialog
+          isOpen={dialogState.isOpen}
+          onClose={hideDialog}
+          title={dialogState.options.title}
+          message={dialogState.options.message}
+          type={dialogState.options.type}
+          onConfirm={dialogState.options.onConfirm}
+          onCancel={dialogState.options.onCancel}
+          confirmText={dialogState.options.confirmText}
+          cancelText={dialogState.options.cancelText}
+          showCancel={dialogState.options.type === 'confirm'}
+        />
+      )}
     </div>
   );
 }

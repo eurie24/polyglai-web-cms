@@ -9,9 +9,15 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@emailjs/browser": "^4.4.1",
+    "dotenv": "^17.2.2",
     "firebase": "^11.7.3",
     "firebase-admin": "^13.4.0",
+    "iconv-lite": "^0.7.0",
+    "mammoth": "^1.10.0",
     "next": "15.3.2",
+    "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^5.4.149",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tesseract.js": "^6.0.1",
@@ -21,6 +27,7 @@
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pdfjs-dist": "^2.10.377",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

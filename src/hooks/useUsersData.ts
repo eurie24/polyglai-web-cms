@@ -39,7 +39,7 @@ interface UseUsersDataReturn {
 
 // Simple in-memory cache
 const cache = new Map<string, { data: User[]; timestamp: number }>();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION = 30 * 1000; // 30 seconds to reflect recent profile changes faster
 
 export const useUsersData = (): UseUsersDataReturn => {
   const [users, setUsers] = useState<User[]>([]);
@@ -76,10 +76,10 @@ export const useUsersData = (): UseUsersDataReturn => {
 
       // Try optimized API first
       try {
-        const response = await fetch('/api/users-optimized', {
+        const response = await fetch(`/api/users-optimized?fresh=1&_=${Date.now()}` , {
           signal,
           headers: {
-            'Cache-Control': 'max-age=300', // 5 minutes
+            'Cache-Control': 'no-cache',
           },
         });
 

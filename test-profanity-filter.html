@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profanity Filter Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .test-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .result.blocked {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .result.allowed {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .detected-words {
+            font-weight: bold;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Profanity Filter Test</h1>
+        <p>This page tests the profanity filter functionality for the web CMS translator.</p>
+        
+        <div class="test-section">
+            <h3>Test Individual Words/Phrases</h3>
+            <input type="text" id="testInput" class="test-input" placeholder="Enter text to test...">
+            <button class="test-button" onclick="testInput()">Test Content</button>
+            <div id="testResult" class="result" style="display: none;"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>Quick Tests</h3>
+            <button class="test-button" onclick="testCleanText()">Test Clean Text</button>
+            <button class="test-button" onclick="testProfanity()">Test Profanity</button>
+            <button class="test-button" onclick="testViolence()">Test Violence</button>
+            <button class="test-button" onclick="testHateSpeech()">Test Hate Speech</button>
+            <button class="test-button" onclick="testMultilingual()">Test Multilingual</button>
+            <div id="quickTestResult" class="result" style="display: none;"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>Test Results Log</h3>
+            <div id="testLog" style="background: #f8f9fa; padding: 10px; border-radius: 4px; max-height: 300px; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import the profanity filter service (this would normally be done via import)
+        // For testing purposes, we'll simulate the service here
+        
+        class ProfanityFilterService {
+            static profanityWords = [
+                'fuck', 'shit', 'damn', 'bitch', 'asshole', 'bastard', 'crap', 'piss',
+                'motherfucker', 'cocksucker', 'whore', 'slut', 'cunt', 'dick', 'pussy',
+                'retard', 'faggot', 'nigger', 'nazi', 'hitler', 'kill yourself', 'kys',
+                'suicide', 'die', 'murder', 'rape', 'terrorist', 'bomb', 'weapon',
+                'puta', 'mierda', 'joder', 'cabrón', 'coño', 'gilipollas', 'hijo de puta',
+                'cao', 'ma de', 'sha bi', 'ben dan', 'hun dan', 'ta ma de',
+                'kuso', 'chikushou', 'shine', 'baka', 'aho', 'kisama', 'teme', 'yarou',
+                'sibal', 'ssibal', 'gaesaekki', 'jotgat', 'byeongsin', 'michin', 'nappeun',
+                'violence', 'harm', 'abuse', 'torture', 'blood', 'gore', 'mutilate',
+                'hate', 'racism', 'discrimination', 'supremacy', 'genocide',
+                'cocaine', 'heroin', 'meth', 'drugs', 'marijuana', 'weed', 'pot',
+                'porn', 'pornography', 'sex', 'sexual', 'nude', 'naked'
+            ];
+
+            static harmfulPatterns = [
+                /\b(kill|murder|die|death)\s+(you|yourself|him|her|them)\b/i,
+                /\b(go\s+)?kill\s+yourself\b/i,
+                /\bkys\b/i,
+                /\b(i\s+will|gonna|going\s+to)\s+(kill|murder|hurt)\b/i,
+                /\b(all\s+)?(jews|muslims|christians|blacks|whites|asians|latinos|hispanics)\s+(are|should)\s+(die|burn|suffer)\b/i,
+                /\b(hitler\s+was\s+right|nazi\s+germany|white\s+power|black\s+people\s+are)\b/i,
+                /\b(cut\s+yourself|harm\s+yourself|hurt\s+yourself)\b/i,
+                /\b(commit\s+suicide|end\s+your\s+life)\b/i,
+                /\b(bomb|terrorist|attack|explosion|weapon|gun|knife)\b/i
+            ];
+
+            static containsProfanity(text) {
+                if (!text || text.trim().length === 0) return false;
+                
+                const normalizedText = this.normalizeText(text);
+                
+                // Check against profanity word list
+                for (const profanityWord of this.profanityWords) {
+                    if (this.containsWord(normalizedText, profanityWord)) {
+                        return true;
+                    }
+                }
+                
+                // Check against harmful patterns
+                for (const pattern of this.harmfulPatterns) {
+                    if (pattern.test(normalizedText)) {
+                        return true;
+                    }
+                }
+                
+                return false;
+            }
+
+            static getDetectedProfanity(text) {
+                const detected = [];
+                
+                if (!text || text.trim().length === 0) return detected;
+                
+                const normalizedText = this.normalizeText(text);
+                
+                // Check against profanity word list
+                for (const profanityWord of this.profanityWords) {
+                    if (this.containsWord(normalizedText, profanityWord)) {
+                        detected.push(profanityWord);
+                    }
+                }
+                
+                // Check against harmful patterns
+                for (const pattern of this.harmfulPatterns) {
+                    const matches = normalizedText.match(pattern);
+                    if (matches) {
+                        detected.push(...matches);
+                    }
+                }
+                
+                return detected;
+            }
+
+            static normalizeText(text) {
+                return text
+                    .toLowerCase()
+                    .replace(/[^\w\s]/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+            }
+
+            static containsWord(text, word) {
+                const wordRegex = new RegExp(`\\b${this.escapeRegex(word)}\\b`, 'i');
+                return wordRegex.test(text);
+            }
+
+            static escapeRegex(string) {
+                return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+
+            static getErrorMessage(detectedContent) {
+                if (detectedContent.includes('kill') || 
+                    detectedContent.includes('murder') || 
+                    detectedContent.includes('die') ||
+                    detectedContent.includes('death') ||
+                    detectedContent.includes('kys')) {
+                    return 'Translation blocked: Text contains violent or threatening language that could harm others.';
+                }
+                
+                if (detectedContent.includes('terrorist') || 
+                    detectedContent.includes('bomb') || 
+                    detectedContent.includes('weapon') ||
+                    detectedContent.includes('attack')) {
+                    return 'Translation blocked: Text contains content related to violence or terrorism.';
+                }
+                
+                if (detectedContent.includes('hate') || 
+                    detectedContent.includes('racism') || 
+                    detectedContent.includes('nazi') ||
+                    detectedContent.includes('supremacy')) {
+                    return 'Translation blocked: Text contains hate speech or discriminatory language.';
+                }
+                
+                if (detectedContent.includes('drug') || 
+                    detectedContent.includes('cocaine') || 
+                    detectedContent.includes('heroin')) {
+                    return 'Translation blocked: Text contains references to illegal substances.';
+                }
+                
+                if (detectedContent.includes('porn') || 
+                    detectedContent.includes('sex') || 
+                    detectedContent.includes('nude')) {
+                    return 'Translation blocked: Text contains inappropriate sexual content.';
+                }
+                
+                return 'Translation blocked: Text contains inappropriate language that violates our community guidelines.';
+            }
+
+            static validateContent(text) {
+                if (!text || text.trim().length === 0) {
+                    return {
+                        isValid: false,
+                        reason: 'Text is empty',
+                        errorMessage: 'Please enter some text to translate.'
+                    };
+                }
+
+                if (this.containsProfanity(text)) {
+                    const detected = this.getDetectedProfanity(text);
+                    return {
+                        isValid: false,
+                        reason: 'Inappropriate content',
+                        errorMessage: this.getErrorMessage(detected.join(', ')),
+                        detectedWords: detected
+                    };
+                }
+
+                return { isValid: true };
+            }
+        }
+
+        // Make it available globally for the HTML buttons
+        window.ProfanityFilterService = ProfanityFilterService;
+
+        function logResult(message, type = 'info') {
+            const log = document.getElementById('testLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+            logEntry.style.color = type === 'error' ? '#721c24' : type === 'success' ? '#155724' : '#495057';
+            logEntry.style.marginBottom = '5px';
+            log.appendChild(logEntry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function showResult(elementId, isValid, message, detectedWords = []) {
+            const result = document.getElementById(elementId);
+            result.style.display = 'block';
+            result.className = `result ${isValid ? 'allowed' : 'blocked'}`;
+            
+            let content = message;
+            if (!isValid && detectedWords.length > 0) {
+                content += `<br><span class="detected-words">Detected words: ${detectedWords.join(', ')}</span>`;
+            }
+            
+            result.innerHTML = content;
+        }
+
+        function testInput() {
+            const input = document.getElementById('testInput').value;
+            if (!input.trim()) {
+                alert('Please enter some text to test.');
+                return;
+            }
+
+            const validation = ProfanityFilterService.validateContent(input);
+            showResult('testResult', validation.isValid, validation.errorMessage || 'Content is acceptable', validation.detectedWords);
+            
+            logResult(`Tested: "${input}" - ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`, validation.isValid ? 'success' : 'error');
+        }
+
+        function testCleanText() {
+            const testCases = [
+                'Hello, how are you today?',
+                'I would like to learn Spanish',
+                'Can you help me with my homework?',
+                'Good morning, have a nice day!',
+                'Thank you for your assistance'
+            ];
+            
+            let results = [];
+            testCases.forEach(text => {
+                const validation = ProfanityFilterService.validateContent(text);
+                results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
+                logResult(`Clean text test: "${text}" - ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`, validation.isValid ? 'success' : 'error');
+            });
+            
+            showResult('quickTestResult', true, 'Clean text test completed. All should be allowed.<br>' + results.join('<br>'));
+        }
+
+        function testProfanity() {
+            const testCases = [
+                'This is a fucking test',
+                'What the hell are you doing?',
+                'You are such a stupid person',
+                'Go to hell you bastard'
+            ];
+            
+            let results = [];
+            testCases.forEach(text => {
+                const validation = ProfanityFilterService.validateContent(text);
+                results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
+                logResult(`Profanity test: "${text}" - ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`, validation.isValid ? 'success' : 'error');
+            });
+            
+            showResult('quickTestResult', false, 'Profanity test completed. All should be blocked.<br>' + results.join('<br>'));
+        }
+
+        function testViolence() {
+            const testCases = [
+                'I will kill you',
+                'Go kill yourself',
+                'KYS',
+                'You should die',
+                'I hate you so much'
+            ];
+            
+            let results = [];
+            testCases.forEach(text => {
+                const validation = ProfanityFilterService.validateContent(text);
+                results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
+                logResult(`Violence test: "${text}" - ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`, validation.isValid ? 'success' : 'error');
+            });
+            
+            showResult('quickTestResult', false, 'Violence test completed. All should be blocked.<br>' + results.join('<br>'));
+        }
+
+        function testHateSpeech() {
+            const testCases = [
+                'All black people are stupid',
+                'Hitler was right',
+                'White power',
+                'I hate all muslims'
+            ];
+            
+            let results = [];
+            testCases.forEach(text => {
+                const validation = ProfanityFilterService.validateContent(text);
+                results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
+                logResult(`Hate speech test: "${text}" - ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`, validation.isValid ? 'success' : 'error');
+            });
+            
+            showResult('quickTestResult', false, 'Hate speech test completed. All should be blocked.<br>' + results.join('<br>'));
+        }
+
+        function testMultilingual() {
+            const testCases = [
+                'Eres un hijo de puta', // Spanish
+                'Ni ma de', // Chinese romanized
+                'Kuso yarou', // Japanese romanized
+                'Sibal gaesaekki' // Korean romanized
+            ];
+            
+            let results = [];
+            testCases.forEach(text => {
+                const validation = ProfanityFilterService.validateContent(text);
+                results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
+                logResult(`Multilingual test: "${text}" - ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`, validation.isValid ? 'success' : 'error');
+            });
+            
+            showResult('quickTestResult', false, 'Multilingual test completed. All should be blocked.<br>' + results.join('<br>'));
+        }
+
+        // Initialize
+        logResult('Profanity filter test page loaded successfully.');
+    </script>
+</body>
+</html>

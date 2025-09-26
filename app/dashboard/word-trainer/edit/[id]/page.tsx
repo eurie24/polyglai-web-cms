@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, updateDoc, collection, query, orderBy, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../../../../src/lib/firebase';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 
@@ -17,6 +17,7 @@ type Language = {
 export default function EditWordTrainerQuestion() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const questionId = params?.id as string;
   
   const [isLoading, setIsLoading] = useState(true);
@@ -28,7 +29,6 @@ export default function EditWordTrainerQuestion() {
     options: ['', '', '', ''],
     correctAnswer: '',
     languageId: '',
-    level: 'beginner',
     pointsValue: 5,
     explanation: '',
   });
@@ -70,7 +70,6 @@ export default function EditWordTrainerQuestion() {
         options: questionData.options || ['', '', '', ''],
         correctAnswer: questionData.correctAnswer || '',
         languageId: questionData.languageId || '',
-        level: questionData.level || 'beginner',
         pointsValue: questionData.pointsValue || 5,
         explanation: questionData.explanation || '',
       });
@@ -183,13 +182,17 @@ export default function EditWordTrainerQuestion() {
         options: formData.options,
         correctAnswer: formData.correctAnswer,
         languageId: formData.languageId.toLowerCase(),
-        level: formData.level.toLowerCase(),
         pointsValue: Number(formData.pointsValue),
         explanation: formData.explanation || null,
       });
       
-      // Redirect back to list
-      router.push('/dashboard/word-trainer');
+      // Redirect back to language-specific list if provided
+      const lang = searchParams.get('lang');
+      if (lang) {
+        router.push(`/dashboard/word-trainer?lang=${lang}`);
+      } else {
+        router.push('/dashboard/word-trainer');
+      }
     } catch (err) {
       console.error('Error updating question:', err);
       setError('Failed to update question. Please try again.');
@@ -210,13 +213,15 @@ export default function EditWordTrainerQuestion() {
       {/* Sidebar */}
       <div className="w-64 bg-[#0277BD] shadow-md text-white">
         <div className="p-6 border-b border-[#29B6F6]/30">
-          <Image 
-            src="/logo_txt.png" 
-            alt="PolyglAI" 
-            width={140} 
-            height={45} 
-            className="h-10 w-auto"
-          />
+          <Link href="/dashboard" aria-label="Go to Dashboard">
+            <Image 
+              src="/logo_txt.png" 
+              alt="PolyglAI" 
+              width={140} 
+              height={45} 
+              className="h-10 w-auto cursor-pointer"
+            />
+          </Link>
         </div>
         <nav className="mt-6">
           <div className="px-4">
@@ -320,24 +325,6 @@ export default function EditWordTrainerQuestion() {
               </select>
             </div>
             
-            {/* Level */}
-            <div className="mb-4">
-              <label className="block text-gray-700 font-medium mb-2" htmlFor="level">
-                Level*
-              </label>
-              <select
-                id="level"
-                name="level"
-                value={formData.level}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#0277BD]"
-                required
-              >
-                <option value="beginner">Beginner</option>
-                <option value="intermediate">Intermediate</option>
-                <option value="advanced">Advanced</option>
-              </select>
-            </div>
             
             {/* Points Value */}
             <div className="mb-4">

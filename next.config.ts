@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   // Enable experimental features for better performance
   experimental: {
     optimizePackageImports: ['firebase', 'firebase-admin'],
+    // Ensure server can import native/CommonJS modules
+    serverComponentsExternalPackages: ['pdf-parse'] as any,
   },
   // Enable compression
   compress: true,
@@ -13,6 +15,11 @@ const nextConfig: NextConfig = {
   images: {
     formats: ['image/webp', 'image/avif'],
     minimumCacheTTL: 60,
+  },
+  async rewrites() {
+    return [
+      { source: '/assets/:path*', destination: '/:path*' },
+    ];
   },
   async headers() {
     return [

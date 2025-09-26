@@ -18,6 +18,8 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { auth, db } from '../../../../../src/lib/firebase';
+import CustomDialog from '../../../../../src/components/CustomDialog';
+import { useCustomDialog } from '../../../../../src/hooks/useCustomDialog';
 import * as XLSX from 'xlsx';
 
 // Character item type
@@ -211,6 +213,16 @@ export default function Characters() {
     success: number;
     errors: string[];
   }>({ success: 0, errors: [] });
+  const [previewData, setPreviewData] = useState<{
+    [level: string]: Array<{
+      value: string;
+      detectedType: string;
+      detectedLanguage: string;
+    }>
+  } | null>(null);
+  
+  // Custom dialog hook
+  const { dialogState, hideDialog, showConfirm, showSuccess, showError, showWarning } = useCustomDialog();
   
   const router = useRouter();
   const params = useParams();
@@ -282,7 +294,6 @@ export default function Characters() {
   useEffect(() => {
     // Force light mode
     document.documentElement.classList.remove('dark');
-    document.documentElement.style.colorScheme = 'light';
     document.body.classList.add('light');
     document.body.classList.remove('dark');
     
@@ -346,19 +357,57 @@ export default function Characters() {
   
   // Delete a character
   const handleDeleteCharacter = async (id: string) => {
-    if (confirm('Are you sure you want to delete this character?')) {
-      try {
-        setLoading(true);
-        // Delete from the current level's subcollection
-        await deleteDoc(doc(db, 'languages', languageId, 'characters', currentLevel, 'items', id));
-        await fetchCharacters();
-      } catch (err) {
-        console.error('Error deleting character:', err);
-        setError('Failed to delete character');
-      } finally {
-        setLoading(false);
+    // Get character data before deletion for cascade delete
+    const characterDoc = await getDoc(doc(db, 'languages', languageId, 'characters', currentLevel, 'items', id));
+    const characterData = characterDoc.data();
+    
+    showConfirm(
+      'Delete Character',
+      'Are you sure you want to delete this character? This will also remove all user assessments for this character.',
+      async () => {
+        try {
+          setLoading(true);
+          
+          // First, perform cascade deletion of user assessments
+          try {
+            const cascadeResponse = await fetch('/api/cascade-delete-content', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                contentType: 'character',
+                contentId: id,
+                languageId: languageId,
+                level: currentLevel,
+                contentValue: characterData?.value
+              }),
+            });
+            
+            const cascadeResult = await cascadeResponse.json();
+            if (cascadeResult.success) {
+              console.log('Cascade deletion completed:', cascadeResult.details);
+            } else {
+              console.warn('Cascade deletion failed:', cascadeResult.error);
+            }
+          } catch (cascadeError) {
+            console.error('Error performing cascade deletion:', cascadeError);
+            // Continue with character deletion even if cascade fails
+          }
+          
+          // Delete the character from the content collection
+          await deleteDoc(doc(db, 'languages', languageId, 'characters', currentLevel, 'items', id));
+          await fetchCharacters();
+          
+          showSuccess('Character Deleted', 'Character and all related user assessments have been deleted successfully.');
+        } catch (err) {
+          console.error('Error deleting character:', err);
+          setError('Failed to delete character');
+        } finally {
+          setLoading(false);
+        }
       }
-    }
+    );
   };
   
   // Start editing a character
@@ -415,9 +464,17 @@ export default function Characters() {
   const handleInitializeCharacters = async () => {
     if (!language || !languageId) return;
     
-    if (!confirm(`Are you sure you want to initialize default characters for ${language.name}? This will add predefined characters with phonetics to each level.`)) {
-      return;
-    }
+    showConfirm(
+      'Initialize Default Characters',
+      `Are you sure you want to initialize default characters for ${language.name}? This will add predefined characters with phonetics to each level.`,
+      async () => {
+        await initializeCharactersToDatabase();
+      }
+    );
+  };
+
+  const initializeCharactersToDatabase = async () => {
+    if (!language || !languageId) return;
     
     try {
       setIsInitializing(true);
@@ -463,7 +520,7 @@ export default function Characters() {
       await batch.commit();
       await fetchCharacters();
       
-      alert(`Successfully initialized characters for ${language.name}`);
+      showSuccess('Characters Initialized', `Successfully initialized characters for ${language?.name || 'this language'}`);
     } catch (err) {
       console.error('Error initializing characters:', err);
       setError('Failed to initialize characters');
@@ -510,13 +567,61 @@ export default function Characters() {
       return;
     }
 
-    if (!confirm(`Are you sure you want to delete ${selectedCharacters.length} selected character(s)? This action cannot be undone.`)) {
-      return;
-    }
+    showConfirm(
+      'Delete Selected Characters',
+      `Are you sure you want to delete ${selectedCharacters.length} selected character(s)? This action cannot be undone.`,
+      async () => {
+        await deleteSelectedCharacters();
+      }
+    );
+  };
 
+  const deleteSelectedCharacters = async () => {
     try {
       setIsDeleting(true);
       setLoading(true);
+
+      // Get character data for cascade deletion
+      const characterDataPromises = selectedCharacters.map(async (characterId) => {
+        const characterDoc = await getDoc(doc(db, 'languages', languageId, 'characters', currentLevel, 'items', characterId));
+        return {
+          id: characterId,
+          data: characterDoc.data()
+        };
+      });
+      
+      const characterDataList = await Promise.all(characterDataPromises);
+      
+      // Perform cascade deletion for all selected characters
+      const cascadePromises = characterDataList.map(async (character) => {
+        try {
+          const cascadeResponse = await fetch('/api/cascade-delete-content', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              contentType: 'character',
+              contentId: character.id,
+              languageId: languageId,
+              level: currentLevel,
+              contentValue: character.data?.value
+            }),
+          });
+          
+          const cascadeResult = await cascadeResponse.json();
+          if (cascadeResult.success) {
+            console.log(`Cascade deletion completed for character ${character.id}:`, cascadeResult.details);
+          } else {
+            console.warn(`Cascade deletion failed for character ${character.id}:`, cascadeResult.error);
+          }
+        } catch (cascadeError) {
+          console.error(`Error performing cascade deletion for character ${character.id}:`, cascadeError);
+        }
+      });
+      
+      // Wait for all cascade deletions to complete
+      await Promise.all(cascadePromises);
 
       // Use batch delete for better performance
       const batch = writeBatch(db);
@@ -530,7 +635,7 @@ export default function Characters() {
       setSelectedCharacters([]);
       await fetchCharacters();
       
-      alert(`Successfully deleted ${selectedCharacters.length} character(s)`);
+      showSuccess('Characters Deleted', `Successfully deleted ${selectedCharacters.length} character(s) and all related user assessments.`);
     } catch (err) {
       console.error('Error deleting characters:', err);
       setError('Failed to delete selected characters');
@@ -540,8 +645,66 @@ export default function Characters() {
     }
   };
 
+  // Preview file content and categorization
+  const previewFileContent = async (file: File) => {
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+      const rows = jsonData.slice(1) as string[][];
+      const preview: {
+        [level: string]: Array<{
+          value: string;
+          detectedType: string;
+          detectedLanguage: string;
+        }>
+      } = {
+        beginner: [],
+        intermediate: [],
+        advanced: []
+      };
+
+      rows.slice(0, 10).forEach((row) => { // Preview first 10 rows
+        if (!row[0] || row[0].toString().trim() === '') return;
+
+        const text = row[0].toString().trim();
+        const contentType = detectContentType(text);
+        const detectedLanguage = detectLanguage(text);
+        
+        let targetLevel = 'beginner';
+        if (contentType === 'sentence') {
+          targetLevel = 'intermediate';
+          if (text.length > 50 || 
+              text.includes('?') || 
+              text.includes('!') ||
+              text.includes('？') ||
+              text.includes('！') ||
+              text.includes('discuss') ||
+              text.includes('explain') ||
+              text.includes('describe') ||
+              text.includes('analyze')) {
+            targetLevel = 'advanced';
+          }
+        }
+
+        preview[targetLevel].push({
+          value: text,
+          detectedType: contentType,
+          detectedLanguage: detectedLanguage
+        });
+      });
+
+      setPreviewData(preview);
+    } catch (err) {
+      console.error('Error previewing file:', err);
+    }
+  };
+
   // Handle file selection for bulk upload
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
@@ -550,14 +713,141 @@ export default function Characters() {
           file.name.endsWith('.xls')) {
         setUploadFile(file);
         setError('');
+        await previewFileContent(file);
       } else {
         setError('Please select a valid Excel file (.xlsx or .xls)');
         setUploadFile(null);
+        setPreviewData(null);
       }
     }
   };
 
-  // Process Excel file and upload to Firestore
+  // Helper function to detect if content is a word or sentence
+  const detectContentType = (text: string): 'word' | 'sentence' => {
+    const trimmedText = text.trim();
+    
+    // Check for sentence indicators
+    const sentenceEndings = ['.', '!', '?', '。', '！', '？'];
+    const hasSentenceEnding = sentenceEndings.some(ending => trimmedText.endsWith(ending));
+    
+    // Check for multiple words (spaces, punctuation that suggests phrases)
+    const hasMultipleWords = /\s/.test(trimmedText) || 
+                           trimmedText.includes(',') || 
+                           trimmedText.includes('，') ||
+                           trimmedText.includes('、') ||
+                           trimmedText.includes(';') ||
+                           trimmedText.includes('；');
+    
+    // Check for question words that suggest sentences
+    const questionWords = ['what', 'where', 'when', 'why', 'how', 'who', 'which', 
+                          'qué', 'dónde', 'cuándo', 'por qué', 'cómo', 'quién', 'cuál',
+                          '什么', '哪里', '什么时候', '为什么', '怎么', '谁', '哪个',
+                          '何', 'どこ', 'いつ', 'なぜ', 'どう', 'だれ', 'どちら'];
+    const hasQuestionWords = questionWords.some(word => 
+      trimmedText.toLowerCase().includes(word.toLowerCase())
+    );
+    
+    // Check for common sentence patterns
+    const sentencePatterns = [
+      /^[A-Z].*[.!?]$/, // English sentence pattern
+      /^[A-Z].*[。！？]$/, // Chinese/Japanese sentence pattern
+      /^[¿¡].*[?!]$/, // Spanish question pattern
+      /^[？！].*[。！？]$/, // Chinese question pattern
+    ];
+    const matchesSentencePattern = sentencePatterns.some(pattern => pattern.test(trimmedText));
+    
+    // Determine if it's a sentence
+    const isSentence = hasSentenceEnding || 
+                      (hasMultipleWords && (hasQuestionWords || matchesSentencePattern)) ||
+                      trimmedText.length > 20; // Longer text is likely a sentence
+    
+    return isSentence ? 'sentence' : 'word';
+  };
+
+  // Helper function to detect language from content
+  const detectLanguage = (text: string): string => {
+    const trimmedText = text.trim();
+    
+    // Chinese characters
+    if (/[\u4e00-\u9fff]/.test(trimmedText)) {
+      return 'mandarin';
+    }
+    
+    // Japanese characters (Hiragana, Katakana, Kanji)
+    if (/[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff]/.test(trimmedText)) {
+      return 'japanese';
+    }
+    
+    // Korean characters
+    if (/[\uac00-\ud7af]/.test(trimmedText)) {
+      return 'korean';
+    }
+    
+    // Arabic characters
+    if (/[\u0600-\u06ff]/.test(trimmedText)) {
+      return 'arabic';
+    }
+    
+    // Cyrillic characters (Russian, etc.)
+    if (/[\u0400-\u04ff]/.test(trimmedText)) {
+      return 'russian';
+    }
+    
+    // Spanish indicators
+    if (trimmedText.includes('ñ') || trimmedText.includes('¿') || trimmedText.includes('¡') ||
+        /[áéíóúü]/.test(trimmedText) || 
+        trimmedText.toLowerCase().includes('hola') ||
+        trimmedText.toLowerCase().includes('gracias')) {
+      return 'spanish';
+    }
+    
+    // French indicators
+    if (trimmedText.includes('ç') || trimmedText.includes('à') || trimmedText.includes('é') ||
+        trimmedText.includes('è') || trimmedText.includes('ù') || trimmedText.includes('â') ||
+        trimmedText.includes('ê') || trimmedText.includes('î') || trimmedText.includes('ô') ||
+        trimmedText.includes('û') || trimmedText.toLowerCase().includes('bonjour')) {
+      return 'french';
+    }
+    
+    // German indicators
+    if (trimmedText.includes('ä') || trimmedText.includes('ö') || trimmedText.includes('ü') ||
+        trimmedText.includes('ß') || trimmedText.toLowerCase().includes('hallo') ||
+        trimmedText.toLowerCase().includes('danke')) {
+      return 'german';
+    }
+    
+    // Default to English for Latin script
+    return 'english';
+  };
+
+  // Check for existing characters to prevent duplicates
+  const checkForDuplicateCharacters = async (charactersToCheck: Array<{
+    value: string;
+    level: string;
+  }>): Promise<Set<string>> => {
+    const existingCharacters = new Set<string>();
+    
+    try {
+      // Get all existing characters from the database for all levels
+      for (const level of levels) {
+        const charactersRef = collection(db, 'languages', languageId, 'characters', level, 'items');
+        const snapshot = await getDocs(charactersRef);
+        
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          const characterKey = `${data.value.toLowerCase().trim()}_${level}`;
+          existingCharacters.add(characterKey);
+        });
+      }
+      
+      return existingCharacters;
+    } catch (err) {
+      console.error('Error checking for duplicate characters:', err);
+      return new Set<string>();
+    }
+  };
+
+  // Process Excel file and upload to Firestore with automatic categorization
   const handleBulkUpload = async () => {
     if (!uploadFile) {
       setError('Please select a file to upload');
@@ -578,16 +868,81 @@ export default function Characters() {
 
       // Skip header row and process data
       const rows = jsonData.slice(1) as string[][];
-      const charactersToUpload: Array<{
-        value: string;
-        phonetic: string;
-        notes: string;
-        etymology: string;
-        createdAt: string;
-      }> = [];
+      const categorizedContent: {
+        [level: string]: Array<{
+          value: string;
+          phonetic: string;
+          notes: string;
+          etymology: string;
+          createdAt: string;
+          detectedLanguage?: string;
+        }>
+      } = {
+        beginner: [],
+        intermediate: [],
+        advanced: []
+      };
       const errors: string[] = [];
+      const categorizationResults: {
+        [level: string]: number;
+      } = {
+        beginner: 0,
+        intermediate: 0,
+        advanced: 0
+      };
+      const duplicateResults: {
+        [level: string]: number;
+      } = {
+        beginner: 0,
+        intermediate: 0,
+        advanced: 0
+      };
 
-      // Validate and process each row
+      // First, collect all characters to check for duplicates
+      const charactersToCheck: Array<{
+        value: string;
+        level: string;
+      }> = [];
+
+      rows.forEach((row, index) => {
+        const rowNumber = index + 2;
+        
+        if (!row[0] || row[0].toString().trim() === '') {
+          errors.push(`Row ${rowNumber}: Character/Word/Phrase is required`);
+          return;
+        }
+
+        const text = row[0].toString().trim();
+        const contentType = detectContentType(text);
+        
+        // Determine difficulty level based on content type
+        let targetLevel = 'beginner';
+        if (contentType === 'sentence') {
+          targetLevel = 'intermediate';
+          // Check if it's a complex sentence that might be advanced
+          if (text.length > 50 || 
+              text.includes('?') || 
+              text.includes('!') ||
+              text.includes('？') ||
+              text.includes('！') ||
+              text.includes('discuss') ||
+              text.includes('explain') ||
+              text.includes('describe') ||
+              text.includes('analyze')) {
+            targetLevel = 'advanced';
+          }
+        }
+
+        charactersToCheck.push({
+          value: text,
+          level: targetLevel
+        });
+      });
+
+      // Check for duplicates
+      const existingCharacters = await checkForDuplicateCharacters(charactersToCheck);
+
+      // Process each row and categorize automatically
       rows.forEach((row, index) => {
         const rowNumber = index + 2; // +2 because we skipped header and arrays are 0-indexed
         
@@ -596,61 +951,140 @@ export default function Characters() {
           return;
         }
 
+        const text = row[0].toString().trim();
+        const contentType = detectContentType(text);
+        const detectedLanguage = detectLanguage(text);
+        
+        // Determine difficulty level based on content type
+        let targetLevel = 'beginner';
+        if (contentType === 'sentence') {
+          targetLevel = 'intermediate';
+          // Check if it's a complex sentence that might be advanced
+          if (text.length > 50 || 
+              text.includes('?') || 
+              text.includes('!') ||
+              text.includes('？') ||
+              text.includes('！') ||
+              text.includes('discuss') ||
+              text.includes('explain') ||
+              text.includes('describe') ||
+              text.includes('analyze')) {
+            targetLevel = 'advanced';
+          }
+        }
+
+        // Check for duplicates
+        const characterKey = `${text.toLowerCase().trim()}_${targetLevel}`;
+        if (existingCharacters.has(characterKey)) {
+          duplicateResults[targetLevel] = (duplicateResults[targetLevel] || 0) + 1;
+          return; // Skip this character as it already exists
+        }
+
         const character = {
-          value: row[0].toString().trim(),
+          value: text,
           phonetic: row[1] ? row[1].toString().trim() : '',
           notes: row[2] ? row[2].toString().trim() : '',
           etymology: row[3] ? row[3].toString().trim() : '',
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          detectedLanguage: detectedLanguage
         };
 
-        charactersToUpload.push(character);
+        categorizedContent[targetLevel].push(character);
+        categorizationResults[targetLevel]++;
       });
 
-      if (charactersToUpload.length === 0) {
-        setError('No valid characters found in the file');
+      // Check if we have any valid content
+      const totalContent = Object.values(categorizationResults).reduce((sum, count) => sum + count, 0);
+      const totalDuplicates = Object.values(duplicateResults).reduce((sum, count) => sum + count, 0);
+      
+      if (totalContent === 0) {
+        if (totalDuplicates > 0) {
+          // All content was duplicate
+          const duplicateMessage = `All content in the file already exists in the database!\n\n` +
+            `🔄 Duplicates found:\n` +
+            Object.entries(duplicateResults).map(([level, count]) => 
+              count > 0 ? `• ${level.charAt(0).toUpperCase() + level.slice(1)}: ${count} items` : ''
+            ).filter(line => line).join('\n') +
+            `\n\nNo new content was uploaded.`;
+          
+          showWarning('All Content Already Exists', duplicateMessage, () => {
+            setShowBulkUpload(false);
+            setUploadFile(null);
+            setPreviewData(null);
+            setUploadProgress(0);
+            setIsUploading(false);
+          });
+        } else {
+          setError('No valid content found in the file');
+        }
+        setIsUploading(false);
         return;
       }
 
-      // Upload to Firestore in batches
+      // Upload to appropriate levels
       const batchSize = 500; // Firestore batch limit
-      let successCount = 0;
+      let totalSuccessCount = 0;
 
-      for (let i = 0; i < charactersToUpload.length; i += batchSize) {
-        const batch = writeBatch(db);
-        const batchData = charactersToUpload.slice(i, i + batchSize);
+      for (const [level, content] of Object.entries(categorizedContent)) {
+        if (content.length === 0) continue;
 
-        batchData.forEach(character => {
-          const newDocRef = doc(collection(db, 'languages', languageId, 'characters', currentLevel, 'items'));
-          batch.set(newDocRef, character);
-        });
-
-        try {
-          await batch.commit();
-          successCount += batchData.length;
-        } catch (batchError) {
-          console.error('Batch upload error:', batchError);
-          errors.push(`Failed to upload batch starting at row ${i + 2}`);
+        // Check if this level exists for the current language
+        if (!levels.includes(level)) {
+          errors.push(`Level '${level}' is not available for this language. Skipping ${content.length} items.`);
+          continue;
         }
 
-        // Update progress
-        const progress = Math.round(((i + batchSize) / charactersToUpload.length) * 100);
-        setUploadProgress(Math.min(progress, 100));
+        // Upload content for this level
+        for (let i = 0; i < content.length; i += batchSize) {
+          const batch = writeBatch(db);
+          const batchData = content.slice(i, i + batchSize);
+
+          batchData.forEach(character => {
+            const newDocRef = doc(collection(db, 'languages', languageId, 'characters', level, 'items'));
+            batch.set(newDocRef, character);
+          });
+
+          try {
+            await batch.commit();
+            totalSuccessCount += batchData.length;
+          } catch (batchError) {
+            console.error(`Batch upload error for ${level}:`, batchError);
+            errors.push(`Failed to upload ${level} batch starting at row ${i + 2}`);
+          }
+
+          // Update progress
+          const progress = Math.round((totalSuccessCount / totalContent) * 100);
+          setUploadProgress(Math.min(progress, 100));
+        }
       }
 
-      setUploadResults({ success: successCount, errors });
+      setUploadResults({ success: totalSuccessCount, errors });
       
-      if (successCount > 0) {
+      if (totalSuccessCount > 0) {
         await fetchCharacters(); // Refresh the characters list
       }
 
-      // Show results
+      // Show detailed results
+      const duplicateCount = Object.values(duplicateResults).reduce((sum, count) => sum + count, 0);
+      const duplicateMessage = duplicateCount > 0 ? 
+        `\n\n🔄 Duplicates skipped: ${duplicateCount} items` : '';
+      
+      const resultMessage = `Upload completed!\n\n` +
+        `📊 Categorization Results:\n` +
+        `• Beginner (words): ${categorizationResults.beginner} items\n` +
+        `• Intermediate (sentences): ${categorizationResults.intermediate} items\n` +
+        `• Advanced (complex): ${categorizationResults.advanced} items\n\n` +
+        `✅ Successfully uploaded: ${totalSuccessCount} items` +
+        duplicateMessage +
+        `\n❌ Errors: ${errors.length} items`;
+
       if (errors.length === 0) {
-        alert(`Successfully uploaded ${successCount} characters!`);
-        setShowBulkUpload(false);
-        setUploadFile(null);
+        showSuccess('Upload Successful', resultMessage, () => {
+          setShowBulkUpload(false);
+          setUploadFile(null);
+        });
       } else {
-        alert(`Upload completed with ${successCount} successes and ${errors.length} errors. Check the details below.`);
+        showError('Upload Completed with Errors', resultMessage + `\n\nCheck details below for specific errors.`);
       }
 
     } catch (err) {
@@ -668,7 +1102,11 @@ export default function Characters() {
       ['Character/Word/Phrase', 'Phonetic', 'Notes', 'Etymology'],
       ['你好', 'nǐ hǎo', 'Hello greeting', 'Combines 你 (you) and 好 (good)'],
       ['Hello', 'həˈloʊ', 'Common greeting', 'From Old English "hæl" meaning "whole, healthy"'],
-      ['こんにちは', 'konnichiwa', 'Good afternoon', 'From 今日は (konnichi wa) meaning "today"']
+      ['こんにちは', 'konnichiwa', 'Good afternoon', 'From 今日は (konnichi wa) meaning "today"'],
+      ['How are you?', 'haʊ ɑr ju', 'Common question', 'Standard English greeting question'],
+      ['¿Cómo estás?', 'koh-mo es-tas', 'How are you?', 'Spanish greeting question'],
+      ['What are your thoughts on technology?', '', 'Discussion question', 'Complex question for advanced level'],
+      ['Discuss the impact of climate change', '', 'Discussion prompt', 'Advanced discussion topic']
     ];
 
     const worksheet = XLSX.utils.aoa_to_sheet(templateData);
@@ -693,6 +1131,7 @@ export default function Characters() {
     setUploadFile(null);
     setUploadProgress(0);
     setUploadResults({ success: 0, errors: [] });
+    setPreviewData(null);
     setError('');
   };
 
@@ -800,7 +1239,9 @@ export default function Characters() {
                   onClick={() => setIsAddingCharacter(true)}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
                 >
-                  Add Character
+                  {currentLevel === 'beginner' ? 'Add Word' : 
+                   currentLevel === 'intermediate' ? 'Add Sentence' : 
+                   'Add Topic'}
                 </button>
               </div>
             </div>
@@ -834,15 +1275,20 @@ export default function Characters() {
             {isAddingCharacter && (
               <div className="bg-white p-6 rounded-lg shadow-md mb-8">
                 <h2 className="text-lg font-semibold mb-4">
-                  {editingCharacter ? 'Edit Character' : 'Add New Character'}
+                  {editingCharacter ? 
+                    `Edit ${currentLevel === 'beginner' ? 'Word' : currentLevel === 'intermediate' ? 'Sentence' : 'Topic'}` : 
+                    `Add New ${currentLevel === 'beginner' ? 'Word' : currentLevel === 'intermediate' ? 'Sentence' : 'Topic'}`
+                  }
                 </h2>
                 <form onSubmit={editingCharacter ? handleUpdateCharacter : handleAddCharacter}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {currentLevel === 'advanced' && languageId.toLowerCase() === 'english' 
-                          ? 'Question'
-                          : 'Character/Word/Phrase'
+                        {currentLevel === 'beginner' 
+                          ? 'Word' 
+                          : currentLevel === 'intermediate' 
+                            ? 'Sentence' 
+                            : 'Topic'
                         }
                       </label>
                       {currentLevel === 'advanced' && languageId.toLowerCase() === 'english' ? (
@@ -860,7 +1306,12 @@ export default function Characters() {
                         value={newCharacter.value}
                         onChange={(e) => setNewCharacter({...newCharacter, value: e.target.value})}
                         className="w-full p-2 border border-gray-300 rounded-md"
-                        placeholder="e.g. 你好 or Hello"
+                        placeholder={currentLevel === 'beginner' 
+                          ? "e.g. 你好 or Hello" 
+                          : currentLevel === 'intermediate' 
+                            ? "e.g. How are you? or ¿Cómo estás?" 
+                            : "e.g. What are your thoughts on technology?"
+                        }
                         required
                       />
                       )}
@@ -881,18 +1332,22 @@ export default function Characters() {
                     )}
                     <div className="md:col-span-2">
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {currentLevel === 'advanced' && languageId.toLowerCase() === 'english' 
-                          ? 'Discussion Guidelines (Optional)'
-                          : 'Notes (Optional)'
+                        {currentLevel === 'beginner' 
+                          ? 'Notes (Optional)' 
+                          : currentLevel === 'intermediate' 
+                            ? 'Notes (Optional)' 
+                            : 'Discussion Guidelines (Optional)'
                         }
                       </label>
                       <textarea
                         value={newCharacter.notes}
                         onChange={(e) => setNewCharacter({...newCharacter, notes: e.target.value})}
                         className="w-full p-2 border border-gray-300 rounded-md"
-                        placeholder={currentLevel === 'advanced' && languageId.toLowerCase() === 'english'
-                          ? 'Guidelines for what the user should discuss or key points to consider'
-                          : 'Additional notes or context'
+                        placeholder={currentLevel === 'beginner' 
+                          ? 'Additional notes or context' 
+                          : currentLevel === 'intermediate' 
+                            ? 'Additional notes or context' 
+                            : 'Guidelines for what the user should discuss or key points to consider'
                         }
                         rows={3}
                       />
@@ -925,7 +1380,10 @@ export default function Characters() {
                       className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                       disabled={loading}
                     >
-                      {loading ? (editingCharacter ? 'Updating...' : 'Adding...') : (editingCharacter ? 'Update Character' : 'Add Character')}
+                      {loading ? (editingCharacter ? 'Updating...' : 'Adding...') : (editingCharacter ? 
+                        `Update ${currentLevel === 'beginner' ? 'Word' : currentLevel === 'intermediate' ? 'Sentence' : 'Topic'}` : 
+                        `Add ${currentLevel === 'beginner' ? 'Word' : currentLevel === 'intermediate' ? 'Sentence' : 'Topic'}`
+                      )}
                     </button>
                   </div>
                 </form>
@@ -1015,9 +1473,11 @@ export default function Characters() {
                             />
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            {currentLevel === 'advanced' && languageId.toLowerCase() === 'english' 
-                              ? 'Question'
-                              : 'Character/Word'
+                            {currentLevel === 'beginner' 
+                              ? 'Word' 
+                              : currentLevel === 'intermediate' 
+                                ? 'Sentence' 
+                                : 'Topic'
                             }
                           </th>
                           {!(currentLevel === 'advanced' && languageId.toLowerCase() === 'english') && (
@@ -1026,9 +1486,11 @@ export default function Characters() {
                             </th>
                           )}
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            {currentLevel === 'advanced' && languageId.toLowerCase() === 'english' 
-                              ? 'Guidelines'
-                              : 'Notes'
+                            {currentLevel === 'beginner' 
+                              ? 'Notes' 
+                              : currentLevel === 'intermediate' 
+                                ? 'Notes' 
+                                : 'Guidelines'
                             }
                           </th>
                           {currentLevel === 'beginner' && (
@@ -1132,7 +1594,7 @@ export default function Characters() {
 
       {/* Bulk Upload Modal */}
       {showBulkUpload && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/10 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex justify-between items-center mb-6">
@@ -1152,12 +1614,14 @@ export default function Characters() {
               <div className="space-y-6">
                 {/* Instructions */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h3 className="font-medium text-blue-900 mb-2">Instructions:</h3>
+                  <h3 className="font-medium text-blue-900 mb-2">Smart Upload Instructions:</h3>
                   <ul className="text-sm text-blue-800 space-y-1">
                     <li>• Download the Excel template to see the required format</li>
-                    <li>• Fill in your characters/words with phonetics, notes, and etymology</li>
+                    <li>• Fill in your content (words, phrases, sentences) with phonetics, notes, and etymology</li>
                     <li>• Upload the completed Excel file (.xlsx or .xls)</li>
-                    <li>• Characters will be added to the current level: <strong>{currentLevel}</strong></li>
+                    <li>• <strong>Automatic categorization:</strong> Words → Beginner, Sentences → Intermediate, Complex → Advanced</li>
+                    <li>• Content will be automatically sorted into appropriate difficulty levels</li>
+                    <li>• Mixed content is supported - each item will be categorized individually</li>
                   </ul>
                 </div>
 
@@ -1188,6 +1652,37 @@ export default function Characters() {
                       Selected: {uploadFile.name}
                     </p>
                   )}
+
+                  {/* Preview Data */}
+                  {previewData && (
+                    <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                      <h4 className="font-medium text-gray-900 mb-3">Preview Categorization (first 10 items):</h4>
+                      <div className="space-y-3">
+                        {Object.entries(previewData).map(([level, items]) => (
+                          items.length > 0 && (
+                            <div key={level} className="border-l-4 border-blue-500 pl-3">
+                              <h5 className="font-medium text-gray-800 capitalize">
+                                {level} ({items.length} items)
+                              </h5>
+                              <div className="mt-1 space-y-1">
+                                {items.map((item, index) => (
+                                  <div key={index} className="text-sm text-gray-600 flex items-center space-x-2">
+                                    <span className="font-mono bg-gray-200 px-2 py-1 rounded text-xs">
+                                      {item.detectedType}
+                                    </span>
+                                    <span className="font-mono bg-blue-100 px-2 py-1 rounded text-xs">
+                                      {item.detectedLanguage}
+                                    </span>
+                                    <span className="truncate max-w-xs">{item.value}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Upload Progress */}
@@ -1211,7 +1706,7 @@ export default function Characters() {
                   <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                     <h3 className="font-medium text-green-900 mb-2">Upload Results:</h3>
                     <p className="text-green-800">
-                      Successfully uploaded {uploadResults.success} characters!
+                      Successfully uploaded {uploadResults.success} items with automatic categorization!
                     </p>
                   </div>
                 )}
@@ -1249,6 +1744,22 @@ export default function Characters() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Custom Dialog */}
+      {dialogState.isOpen && dialogState.options && (
+        <CustomDialog
+          isOpen={dialogState.isOpen}
+          onClose={hideDialog}
+          title={dialogState.options.title}
+          message={dialogState.options.message}
+          type={dialogState.options.type}
+          onConfirm={dialogState.options.onConfirm}
+          onCancel={dialogState.options.onCancel}
+          confirmText={dialogState.options.confirmText}
+          cancelText={dialogState.options.cancelText}
+          showCancel={dialogState.options.type === 'confirm'}
+        />
       )}
     </div>
   );

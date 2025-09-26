@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Check User Status</title>
+</head>
+<body>
+    <h1>Check User Status</h1>
+    <div id="status">Testing...</div>
+    <button onclick="checkUserStatus()">Check User Status</button>
+    <div id="result"></div>
+
+    <script>
+        async function checkUserStatus() {
+            const statusDiv = document.getElementById('status');
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                statusDiv.textContent = 'Checking user status...';
+                
+                // Check the user status
+                const response = await fetch('/api/check-user-status?userId=VDFyjh1unncUXDw4amBP7UfYkVC3&userEmail=johnlloydandalajao0@gmail.com');
+                
+                const data = await response.json();
+                console.log('User status response:', data);
+                
+                resultDiv.innerHTML = `
+                    <h3>User Status Check:</h3>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+                
+                if (data.success) {
+                    statusDiv.textContent = `User found! Status: ${data.user.status}`;
+                } else {
+                    statusDiv.textContent = 'User not found!';
+                }
+                
+            } catch (error) {
+                console.error('Test error:', error);
+                resultDiv.innerHTML = `
+                    <h3>❌ Error</h3>
+                    <p>Error: ${error.message}</p>
+                `;
+                statusDiv.textContent = 'Test failed!';
+            }
+        }
+        
+        // Auto-run test on page load
+        window.onload = () => {
+            checkUserStatus();
+        };
+    </script>
+</body>
+</html>

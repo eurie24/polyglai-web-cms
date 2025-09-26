@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Status Fix</title>
+</head>
+<body>
+    <h1>Test Status Fix</h1>
+    <div id="status">Testing...</div>
+    <button onclick="testStatusFix()">Test Status Fix</button>
+    <div id="result"></div>
+
+    <script>
+        async function testStatusFix() {
+            const statusDiv = document.getElementById('status');
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                statusDiv.textContent = 'Testing status fix...';
+                
+                // Test the users API to see if status is included
+                const response = await fetch('/api/users-optimized?fresh=1');
+                const data = await response.json();
+                
+                console.log('Users API response:', data);
+                
+                if (data.success && data.users) {
+                    const usersWithStatus = data.users.filter(user => user.status);
+                    const disabledUsers = data.users.filter(user => user.status === 'DISABLED');
+                    
+                    resultDiv.innerHTML = `
+                        <h3>Status Fix Test Results:</h3>
+                        <p><strong>Total users:</strong> ${data.users.length}</p>
+                        <p><strong>Users with status field:</strong> ${usersWithStatus.length}</p>
+                        <p><strong>Disabled users:</strong> ${disabledUsers.length}</p>
+                        <h4>All user statuses:</h4>
+                        <ul>
+                            ${data.users.map(user => `<li>${user.email}: ${user.status || 'NOT_SET'}</li>`).join('')}
+                        </ul>
+                        <h4>Disabled users:</h4>
+                        <ul>
+                            ${disabledUsers.map(user => `<li>${user.email}: ${user.status}</li>`).join('')}
+                        </ul>
+                    `;
+                    
+                    if (disabledUsers.length > 0) {
+                        statusDiv.textContent = '✅ Status fix working! Disabled users found.';
+                    } else {
+                        statusDiv.textContent = '⚠️ No disabled users found. Try disabling a user first.';
+                    }
+                } else {
+                    resultDiv.innerHTML = `
+                        <h3>❌ Error</h3>
+                        <p>Failed to fetch users: ${data.error || 'Unknown error'}</p>
+                    `;
+                    statusDiv.textContent = 'Test failed!';
+                }
+                
+            } catch (error) {
+                console.error('Test error:', error);
+                resultDiv.innerHTML = `
+                    <h3>❌ Error</h3>
+                    <p>Error: ${error.message}</p>
+                `;
+                statusDiv.textContent = 'Test failed!';
+            }
+        }
+        
+        // Auto-run test on page load
+        window.onload = () => {
+            testStatusFix();
+        };
+    </script>
+</body>
+</html>

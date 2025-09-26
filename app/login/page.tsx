@@ -11,7 +11,9 @@ import {
   signInWithPopup,
   onAuthStateChanged
 } from 'firebase/auth';
-import { auth } from '../../src/lib/firebase';
+import { auth, db } from '../../src/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { getErrorMessage } from '../../src/lib/auth-error-handler';
 
 function LoginContent() {
   const [email, setEmail] = useState('');
@@ -29,7 +31,7 @@ function LoginContent() {
   useEffect(() => {
     console.log("Setting up auth state listener...");
     
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const handleAuthStateChange = async (user: any) => {
       console.log("Auth state changed:", user ? `User logged in: ${user.email}` : "No user");
       
       if (user) {
@@ -41,12 +43,16 @@ function LoginContent() {
           router.push('/user-dashboard');
         }
       }
-    });
+    };
+
+    const unsubscribe = onAuthStateChanged(auth, handleAuthStateChange);
 
     // Check if there's an error parameter in the URL
     const errorParam = searchParams.get('error');
     if (errorParam === 'adminOnly') {
       setError('Admin access required. Please use the admin login.');
+    } else if (errorParam === 'signupViaMobile') {
+      setError('To create a new account, please sign up using the mobile app.');
     }
 
     // Clean up subscription
@@ -85,12 +91,7 @@ function LoginContent() {
       router.push('/user-dashboard');
     } catch (err: unknown) {
       console.error('Login error:', err);
-      const error = err as { code?: string; message?: string };
-      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        setError('Invalid email or password');
-      } else {
-        setError(error.message || 'Failed to log in');
-      }
+      setError(getErrorMessage(err, 'user'));
       setLoading(false);
     }
   };
@@ -122,12 +123,7 @@ function LoginContent() {
       }, 5000);
     } catch (err: unknown) {
       console.error('Password reset error:', err);
-      const error = err as { code?: string; message?: string };
-      if (error.code === 'auth/user-not-found') {
-        setError('No account found with this email address');
-      } else {
-        setError(error.message || 'Failed to send reset email');
-      }
+      setError(getErrorMessage(err, 'user'));
     } finally {
       setLoading(false);
     }
@@ -146,23 +142,61 @@ function LoginContent() {
         prompt: 'select_account'
       });
       
-      // Use popup instead of redirect for more reliable completion
+      // Use popup for more reliable completion
       const result = await signInWithPopup(auth, provider);
       console.log("Google sign-in successful:", result.user.email);
       
-      // Check if the signed-in user is the admin - redirect to admin login
+      // Check if user has a profile in Firestore
+      try {
+        console.log("Checking Firestore profile for user:", result.user.uid);
+        const userDocRef = doc(db, 'users', result.user.uid);
+        const userDoc = await getDoc(userDocRef);
+        console.log("Firestore document exists:", userDoc.exists());
+        
+        if (!userDoc.exists()) {
+          console.log("User profile not found in Firestore, denying access");
+          setLoading(false);
+          await auth.signOut();
+          router.push('/login?error=signupViaMobile');
+          return;
+        }
+        console.log("User profile found in Firestore, allowing access");
+      } catch (firestoreCheckError: any) {
+        console.error('Error checking user profile existence:', firestoreCheckError);
+        
+        // If it's a permissions error, it likely means the user doesn't exist
+        if (firestoreCheckError.code === 'permission-denied' || 
+            firestoreCheckError.message?.includes('Missing or insufficient permissions')) {
+          console.log("Permission denied - user profile likely doesn't exist, denying access");
+          setLoading(false);
+          await auth.signOut();
+          router.push('/login?error=signupViaMobile');
+          return;
+        }
+        
+        // For other errors, still deny access to be safe
+        setLoading(false);
+        await auth.signOut();
+        router.push('/login?error=signupViaMobile');
+        return;
+      }
+      
+      // Check if admin
       if (result.user.email?.toLowerCase() === 'polyglAITool@gmail.com'.toLowerCase()) {
+        console.log("Admin user detected, redirecting to admin login");
+        setLoading(false);
         await auth.signOut();
         router.push('/admin/login');
         return;
       }
       
-      // For regular users, redirect to user dashboard
+      // Regular user - redirect to dashboard
+      console.log("Regular user, redirecting to user dashboard");
+      setLoading(false);
       router.push('/user-dashboard');
     } catch (err: unknown) {
       console.error('Google sign-in error:', err);
-      const error = err as { message?: string };
-      setError(`Google sign-in failed: ${error.message || 'Unknown error'}`);
+      setError(getErrorMessage(err, 'user'));
       setLoading(false);
     }
   };
@@ -181,7 +215,9 @@ function LoginContent() {
         {/* Logo and tagline */}
         <div className="text-center mb-16 sm:mb-20 md:mb-24">
           <div className="mb-2">
-            <Image src="/logo_txt.png" alt="PolyglAI Logo" width={200} height={60} className="mx-auto" />
+            <Link href="/" className="inline-block hover:opacity-80 transition-opacity duration-200">
+              <Image src="/logo_txt.png" alt="PolyglAI Logo" width={200} height={60} className="mx-auto" />
+            </Link>
           </div>
           <p className="text-white font-bold text-sm sm:text-base">
             Learn, Translate, Improve Proficiency
@@ -312,7 +348,7 @@ function LoginContent() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    Signing in...
+                    Logging in...
                   </span>
                 ) : (
                   'Log in'
@@ -338,11 +374,7 @@ function LoginContent() {
                 </button>
               </div>
 
-              <div className="text-center mt-6">
-                <Link href="/signup" className="text-[#0277BD] hover:underline">
-                  Don&apos;t have an account? Sign up
-                </Link>
-              </div>
+              {/* Signup removed on web; users must sign up via mobile app */}
               
               <div className="text-center mt-4 pt-4 border-t border-gray-200">
                 <Link href="/admin/login" className="text-[#0277BD] hover:underline font-medium">

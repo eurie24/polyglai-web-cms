@@ -1,4 +1,8 @@
 import { NextResponse } from 'next/server';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 import { getFirestore } from 'firebase-admin/firestore';
 import { initAdmin } from '@/firebase/adminInit';
 
@@ -6,13 +10,15 @@ import { initAdmin } from '@/firebase/adminInit';
 const cache = new Map<string, { data: Record<string, unknown>[]; timestamp: number }>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const fresh = searchParams.get('fresh');
     const cacheKey = 'users-data';
     const cached = cache.get(cacheKey);
     
     // Return cached data if still valid
-    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    if (!fresh && cached && Date.now() - cached.timestamp < CACHE_DURATION) {
       console.log('Returning cached users data');
       return NextResponse.json({
         success: true,
@@ -57,6 +63,8 @@ export async function GET() {
           lastLogin: formatDate(userData.lastLogin),
           preferredLanguage: userData.preferredLanguage || '',
           referralSource: userData.referralSource || '',
+          status: userData.status || 'ACTIVE', // Include status field
+          role: userData.role || 'user', // Include role field
           // Only fetch progress if specifically needed (lazy loading)
           progress: null
         };

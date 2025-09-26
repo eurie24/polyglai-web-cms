@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
+import CustomDialog from '../../src/components/CustomDialog';
+import { useCustomDialog } from '../../src/hooks/useCustomDialog';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../src/lib/firebase';
 
@@ -40,6 +42,7 @@ export default function UserDashboard() {
   const [characterLimit] = useState(100);
   const [showSourceLangSelector, setShowSourceLangSelector] = useState(false);
   const [showTargetLangSelector, setShowTargetLangSelector] = useState(false);
+  const { dialogState, showError, hideDialog } = useCustomDialog();
   
   // File translation state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -258,7 +261,7 @@ export default function UserDashboard() {
     if (file) {
       // Check file size (5MB limit)
       if (file.size > 5 * 1024 * 1024) {
-        alert('File size exceeds 5MB limit');
+        showError('File Too Large', 'File size exceeds 5MB limit');
         return;
       }
       setSelectedFile(file);
@@ -938,7 +941,7 @@ export default function UserDashboard() {
 
       {/* Language Selector Modals */}
       {showSourceLangSelector && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/10 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-96 max-h-96 overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold">Select Source Language</h3>
@@ -971,7 +974,7 @@ export default function UserDashboard() {
       )}
 
       {showTargetLangSelector && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/10 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-96 max-h-96 overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold">Select Target Language</h3>
@@ -1001,6 +1004,21 @@ export default function UserDashboard() {
             </div>
           </div>
         </div>
+      )}
+      {/* Custom Dialog */}
+      {dialogState.isOpen && dialogState.options && (
+        <CustomDialog
+          isOpen={dialogState.isOpen}
+          onClose={hideDialog}
+          title={dialogState.options.title}
+          message={dialogState.options.message}
+          type={dialogState.options.type}
+          onConfirm={dialogState.options.onConfirm}
+          onCancel={dialogState.options.onCancel}
+          confirmText={dialogState.options.confirmText}
+          cancelText={dialogState.options.cancelText}
+          showCancel={dialogState.options.type === 'confirm'}
+        />
       )}
     </div>
   );

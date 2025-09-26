@@ -227,10 +227,10 @@ export default function Home() {
             
             <div className="flex flex-col sm:flex-row gap-4">
               <Link
-                href="/signup"
+                href="/login"
                 className="group px-8 py-4 bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold rounded-2xl hover:from-blue-600 hover:to-cyan-600 transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 flex items-center justify-center"
               >
-                Get Started Free
+                Sign in
                 <svg className="w-5 h-5 ml-2 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
                 </svg>
@@ -248,8 +248,8 @@ export default function Home() {
               isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
             }`}
           >
-            {/* Mockup images */}
-            <div className="relative w-full max-w-4xl mx-auto mt-40">
+            {/* Mockup images - hidden on mobile devices */}
+            <div className="relative w-full max-w-4xl mx-auto mt-40 hidden md:block">
               <div className="relative w-full h-[500px]">
                 <div className="absolute left-1/2 transform -translate-x-1/2 translate-y-32 w-full">
                   <div className="relative w-full h-full flex items-center justify-center">
@@ -260,7 +260,7 @@ export default function Home() {
                         alt="App logo screen"
                         width={350}
                         height={650}
-                        className="w-full h-auto max-h-[550px] object-contain -rotate-6 shadow-2xl rounded-2xl"
+                        className="w-full h-auto max-h-[550px] object-contain -rotate-6 rounded-2xl"
                         priority
                       />
                     </div>
@@ -272,7 +272,7 @@ export default function Home() {
                         alt="Step 1 screen mockup"
                         width={350}
                         height={650}
-                        className="w-full h-auto max-h-[550px] object-contain rotate-6 shadow-2xl rounded-2xl"
+                        className="w-full h-auto max-h-[550px] object-contain rotate-6 rounded-2xl"
                         priority
                       />
                     </div>

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EmailJS Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+</head>
+<body>
+    <h1>EmailJS Test</h1>
+    <div id="status">Testing...</div>
+    <button onclick="testEmailJS()">Test EmailJS</button>
+    <div id="result"></div>
+
+    <script>
+        // Initialize EmailJS with your public key
+        emailjs.init('PZhOUxSa...'); // Replace with your actual public key
+        
+        async function testEmailJS() {
+            const statusDiv = document.getElementById('status');
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                statusDiv.textContent = 'Testing EmailJS...';
+                
+                const templateParams = {
+                    to_email: 'test@example.com',
+                    to_name: 'Test User',
+                    subject: 'Test Email',
+                    message: 'This is a test email from EmailJS',
+                    support_email: 'polyglAITool@gmail.com',
+                    app_url: 'http://localhost:3000'
+                };
+                
+                console.log('Testing with params:', templateParams);
+                
+                // Test disable template
+                const result = await emailjs.send(
+                    'service_cchotm9',
+                    'template_z3ehh4s',
+                    templateParams
+                );
+                
+                console.log('EmailJS result:', result);
+                resultDiv.innerHTML = `
+                    <h3>✅ Success!</h3>
+                    <p>Status: ${result.status}</p>
+                    <p>Text: ${result.text}</p>
+                `;
+                statusDiv.textContent = 'Test completed successfully!';
+                
+            } catch (error) {
+                console.error('EmailJS error:', error);
+                resultDiv.innerHTML = `
+                    <h3>❌ Error</h3>
+                    <p>Error: ${error.message || JSON.stringify(error)}</p>
+                    <p>Status: ${error.status || 'Unknown'}</p>
+                    <p>Full Error: ${JSON.stringify(error, null, 2)}</p>
+                `;
+                statusDiv.textContent = 'Test failed!';
+            }
+        }
+        
+        // Auto-run test on page load
+        window.onload = () => {
+            testEmailJS();
+        };
+    </script>
+</body>
+</html>

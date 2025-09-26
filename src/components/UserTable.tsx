@@ -38,10 +38,12 @@ interface UserTableProps {
 // Memoized user row component
 const UserRow = memo(({ 
   user, 
-  index
+  index,
+  normalizeGender
 }: { 
   user: User; 
   index: number;
+  normalizeGender: (gender?: string) => string;
 }) => {
 
   return (
@@ -81,7 +83,7 @@ const UserRow = memo(({
       </td>
       <td className="px-3 sm:px-6 py-4 whitespace-nowrap hidden xl:table-cell">
         <div className="text-xs sm:text-sm text-gray-800">
-          {user.gender || 'Unknown'}
+          {normalizeGender(user.gender)}
         </div>
       </td>
       <td className="px-3 sm:px-6 py-4 whitespace-nowrap hidden xl:table-cell">
@@ -109,6 +111,19 @@ const UserTable = memo<UserTableProps>(({ users, loading }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [usersPerPage] = useState(10);
   const [showAllUsers, setShowAllUsers] = useState(false);
+
+  // Helper function to normalize gender for display
+  const normalizeGender = (gender?: string): string => {
+    if (!gender) return 'Unknown';
+    const normalized = gender.trim();
+    
+    // Handle various Non-binary formats
+    if (normalized === 'Non - Binary' || normalized === 'Non Binary' || normalized === 'Non-Binary' || normalized === 'Non-binary') {
+      return 'Non-binary';
+    }
+    
+    return normalized;
+  };
 
   // Memoized pagination calculations
   const paginationData = useMemo(() => {
@@ -199,6 +214,7 @@ const UserTable = memo<UserTableProps>(({ users, loading }) => {
                   key={user.id}
                   user={user}
                   index={index}
+                  normalizeGender={normalizeGender}
                 />
               ))
             )}

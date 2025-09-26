@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../src/lib/firebase';
+import { doc, getDoc, collection, getDocs, getCountFromServer } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 interface UserProfile {
   name: string;
@@ -29,6 +29,42 @@ interface CachedData {
 // Cache duration: 5 minutes
 const CACHE_DURATION = 5 * 60 * 1000;
 const cache = new Map<string, CachedData>();
+
+// Helper function to get total character count for a language and level
+async function getTotalAssessmentsForLevel(language: string, level: string): Promise<number> {
+  try {
+    // First try to get from the characters collection (new format)
+    const charactersSnapshot = await getCountFromServer(
+      collection(db, 'languages', language.toLowerCase(), 'characters', level.toLowerCase(), 'items')
+    );
+    
+    if (charactersSnapshot.data().count > 0) {
+      console.log(`Found ${charactersSnapshot.data().count} characters for ${language} ${level}`);
+      return charactersSnapshot.data().count;
+    }
+    
+    // Fallback: try the original characters collection format
+    const originalDoc = await getDoc(doc(db, 'characters', language.toLowerCase()));
+    
+    if (originalDoc.exists()) {
+      const data = originalDoc.data();
+      const characters = data?.[level.toLowerCase()] as any[] | undefined;
+      if (characters && characters.length > 0) {
+        console.log(`Found ${characters.length} characters for ${language} ${level} (original format)`);
+        return characters.length;
+      }
+    }
+    
+    // Final fallback: return a reasonable default based on level
+    const defaultCount = level.toLowerCase() === 'beginner' ? 10 : 15;
+    console.log(`Using default count ${defaultCount} for ${language} ${level}`);
+    return defaultCount;
+  } catch (e) {
+    console.error(`Error getting total assessments for ${language} ${level}:`, e);
+    // Return a reasonable default
+    return level.toLowerCase() === 'beginner' ? 10 : 15;
+  }
+}
 
 export function useUserData(userId: string) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -110,6 +146,46 @@ export function useUserData(userId: string) {
         userStats.wordTrainerCorrectAnswers = data.wordTrainerCorrectAnswers || 0;
         userStats.highScoreAssessments = data.highScoreAssessments || 0;
         userStats.languagesWithLessons = data.languagesWithLessons || 0;
+      }
+
+      // Fallback: compute Lessons Passed using dynamic character counts
+      if (!userStats.lessonsCompleted || userStats.lessonsCompleted === 0) {
+        const computedLessons = await (async () => {
+          try {
+            const languagesSnap = await getDocs(collection(db, 'users', userId, 'languages'));
+            let totalLessonsCompleted = 0;
+            for (const langDoc of languagesSnap.docs) {
+              const languageId = langDoc.id;
+              for (const level of ['beginner', 'intermediate'] as const) {
+                const assessmentsSnap = await getDocs(
+                  collection(db, 'users', userId, 'languages', languageId, 'assessmentsByLevel', level, 'assessments')
+                );
+                let completedAssessments = 0;
+                assessmentsSnap.forEach(d => {
+                  const score = (d.data() as any).score ?? 0;
+                  if (typeof score === 'number' ? score > 0 : parseInt(String(score)) > 0) {
+                    completedAssessments++;
+                  }
+                });
+                
+                // Get the total number of characters/words available for this language and level
+                const totalAssessments = await getTotalAssessmentsForLevel(languageId, level);
+                
+                // A lesson is completed when user has completed ALL available assessments with score > 0
+                if (completedAssessments >= totalAssessments && totalAssessments > 0) {
+                  totalLessonsCompleted++;
+                }
+              }
+            }
+            return totalLessonsCompleted;
+          } catch (e) {
+            console.error('Error computing lessons:', e);
+            return 0;
+          }
+        })();
+        if (computedLessons > 0) {
+          userStats.lessonsCompleted = computedLessons;
+        }
       }
 
       // Update cache

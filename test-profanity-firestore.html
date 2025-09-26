@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profanity Firestore Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .test-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #0056b3;
+        }
+        .test-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .success {
+            background: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Profanity Firestore Test</h1>
+        <p>This page tests the profanity counter functionality with Firestore integration.</p>
+        
+        <div class="test-section">
+            <h3>Test Profanity Detection & Firestore Recording</h3>
+            <input type="text" id="testInput" class="test-input" placeholder="Enter text with profanity to test (e.g., 'This is a fucking test')">
+            <div>
+                <button class="test-button" onclick="testProfanityRecording()" id="testBtn">Test Recording</button>
+                <button class="test-button" onclick="checkFirestoreData()" id="checkBtn">Check Firestore Data</button>
+                <button class="test-button" onclick="clearResults()">Clear Results</button>
+            </div>
+            <div id="result" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Quick Tests</h3>
+            <button class="test-button" onclick="testCleanText()">Test Clean Text</button>
+            <button class="test-button" onclick="testProfanity()">Test Profanity</button>
+            <button class="test-button" onclick="testViolence()">Test Violence</button>
+            <button class="test-button" onclick="testMultilingual()">Test Multilingual</button>
+        </div>
+
+        <div class="test-section">
+            <h3>Firestore Connection Status</h3>
+            <div id="firestoreStatus" class="result">Checking Firestore connection...</div>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, addDoc, query, where, getDocs, doc, getDoc, updateDoc, setDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyAzGBH6VXHsQoTi6lFRJo2Za3Ym4jWDRZI",
+            authDomain: "polyglai-5591c.firebaseapp.com",
+            projectId: "polyglai-5591c",
+            storageBucket: "polyglai-5591c.firebasestorage.app",
+            messagingSenderId: "384494047717",
+            appId: "1:384494047717:web:df532a9442d43f64a61f0c"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // Profanity filter service (simplified version)
+        class ProfanityFilterService {
+            static profanityWords = [
+                'fuck', 'shit', 'damn', 'bitch', 'asshole', 'bastard', 'crap', 'piss',
+                'motherfucker', 'cocksucker', 'whore', 'slut', 'cunt', 'dick', 'pussy',
+                'retard', 'faggot', 'nigger', 'nazi', 'hitler', 'kill yourself', 'kys',
+                'suicide', 'die', 'murder', 'rape', 'terrorist', 'bomb', 'weapon',
+                'puta', 'mierda', 'joder', 'cabrón', 'coño', 'gilipollas', 'hijo de puta',
+                'cao', 'ma de', 'sha bi', 'ben dan', 'hun dan', 'ta ma de',
+                'kuso', 'chikushou', 'shine', 'baka', 'aho', 'kisama', 'teme', 'yarou',
+                'sibal', 'ssibal', 'gaesaekki', 'jotgat', 'byeongsin', 'michin', 'nappeun',
+                'violence', 'harm', 'abuse', 'torture', 'blood', 'gore', 'mutilate',
+                'hate', 'racism', 'discrimination', 'supremacy', 'genocide',
+                'cocaine', 'heroin', 'meth', 'drugs', 'marijuana', 'weed', 'pot',
+                'porn', 'pornography', 'sex', 'sexual', 'nude', 'naked'
+            ];
+
+            static containsProfanity(text) {
+                if (!text || text.trim().length === 0) return false;
+                
+                const normalizedText = this.normalizeText(text);
+                
+                for (const profanityWord of this.profanityWords) {
+                    if (this.containsWord(normalizedText, profanityWord)) {
+                        return true;
+                    }
+                }
+                
+                return false;
+            }
+
+            static getDetectedProfanity(text) {
+                const detected = [];
+                
+                if (!text || text.trim().length === 0) return detected;
+                
+                const normalizedText = this.normalizeText(text);
+                
+                for (const profanityWord of this.profanityWords) {
+                    if (this.containsWord(normalizedText, profanityWord)) {
+                        detected.push(profanityWord);
+                    }
+                }
+                
+                return detected;
+            }
+
+            static normalizeText(text) {
+                return text
+                    .toLowerCase()
+                    .replace(/[^\w\s]/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+            }
+
+            static containsWord(text, word) {
+                const wordRegex = new RegExp(`\\b${this.escapeRegex(word)}\\b`, 'i');
+                return wordRegex.test(text);
+            }
+
+            static escapeRegex(string) {
+                return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+
+            static validateContent(text, options = {}) {
+                if (!text || text.trim().length === 0) {
+                    return {
+                        isValid: false,
+                        reason: 'Text is empty',
+                        errorMessage: 'Please enter some text to translate.'
+                    };
+                }
+
+                if (this.containsProfanity(text)) {
+                    const detected = this.getDetectedProfanity(text);
+                    
+                    // Record profanity usage
+                    if (options.recordProfanity !== false) {
+                        recordProfanityUsage(text, options.context || 'web_test', options.language || 'en', detected);
+                    }
+                    
+                    return {
+                        isValid: false,
+                        reason: 'Inappropriate content',
+                        errorMessage: 'Translation blocked: Text contains inappropriate language that violates our community guidelines.',
+                        detectedWords: detected
+                    };
+                }
+
+                return { isValid: true };
+            }
+        }
+
+        // Record profanity usage to Firestore
+        async function recordProfanityUsage(text, context, language, detectedWords) {
+            try {
+                const user = auth.currentUser;
+                if (!user) {
+                    console.log('No authenticated user, skipping profanity recording');
+                    return;
+                }
+
+                const profanityRecord = {
+                    userId: user.uid,
+                    text: text,
+                    context: context,
+                    language: language,
+                    detectedWords: detectedWords,
+                    wordCount: detectedWords.length,
+                    timestamp: serverTimestamp(),
+                    date: new Date().toISOString().split('T')[0],
+                    createdAt: serverTimestamp(),
+                };
+
+                // Save individual profanity record
+                await addDoc(collection(db, 'profanity_records'), profanityRecord);
+
+                // Update user's profanity counter
+                await updateUserProfanityCounter(user.uid, detectedWords.length);
+
+                // Update global profanity counter
+                await updateGlobalProfanityCounter(detectedWords.length);
+
+                console.log(`Profanity usage recorded: ${detectedWords.length} words detected in ${context}`);
+            } catch (error) {
+                console.error('Error recording profanity usage:', error);
+            }
+        }
+
+        // Update user's profanity counter
+        async function updateUserProfanityCounter(userId, wordCount) {
+            try {
+                const userRef = doc(db, 'users', userId);
+                const userDoc = await getDoc(userRef);
+                
+                if (userDoc.exists()) {
+                    const currentCount = userDoc.data().profanityCount || 0;
+                    await updateDoc(userRef, {
+                        profanityCount: currentCount + wordCount,
+                        lastProfanityDetected: serverTimestamp(),
+                        updatedAt: serverTimestamp(),
+                    });
+                } else {
+                    await setDoc(userRef, {
+                        profanityCount: wordCount,
+                        lastProfanityDetected: serverTimestamp(),
+                        createdAt: serverTimestamp(),
+                        updatedAt: serverTimestamp(),
+                    });
+                }
+            } catch (error) {
+                console.error('Error updating user profanity counter:', error);
+            }
+        }
+
+        // Update global profanity counter
+        async function updateGlobalProfanityCounter(wordCount) {
+            try {
+                const globalRef = doc(db, 'admin_stats', 'profanity_counter');
+                const globalDoc = await getDoc(globalRef);
+                
+                if (globalDoc.exists()) {
+                    const currentCount = globalDoc.data().totalCount || 0;
+                    await updateDoc(globalRef, {
+                        totalCount: currentCount + wordCount,
+                        lastUpdated: serverTimestamp(),
+                    });
+                } else {
+                    await setDoc(globalRef, {
+                        totalCount: wordCount,
+                        firstDetected: serverTimestamp(),
+                        lastUpdated: serverTimestamp(),
+                    });
+                }
+            } catch (error) {
+                console.error('Error updating global profanity counter:', error);
+            }
+        }
+
+        // Test functions
+        function showResult(message, isSuccess = true) {
+            const result = document.getElementById('result');
+            result.style.display = 'block';
+            result.className = `result ${isSuccess ? 'success' : 'error'}`;
+            result.textContent = message;
+        }
+
+        function setLoading(loading) {
+            document.getElementById('testBtn').disabled = loading;
+            document.getElementById('checkBtn').disabled = loading;
+        }
+
+        async function testProfanityRecording() {
+            const input = document.getElementById('testInput').value;
+            if (!input.trim()) {
+                showResult('Please enter some text to test.', false);
+                return;
+            }
+
+            setLoading(true);
+            showResult('Testing profanity recording...');
+
+            try {
+                const validation = ProfanityFilterService.validateContent(input, { 
+                    recordProfanity: true,
+                    context: 'web_test',
+                    language: 'en'
+                });
+
+                if (!validation.isValid) {
+                    showResult(`✅ Profanity detected and recorded!\n\n` +
+                              `Detected words: ${validation.detectedWords.join(', ')}\n` +
+                              `Error message: ${validation.errorMessage}\n\n` +
+                              `Check Firestore console to see if the record was saved.`);
+                } else {
+                    showResult('❌ No profanity detected in the text.');
+                }
+            } catch (error) {
+                showResult(`Error testing profanity: ${error.message}`, false);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        async function checkFirestoreData() {
+            setLoading(true);
+            showResult('Checking Firestore data...');
+
+            try {
+                const user = auth.currentUser;
+                if (!user) {
+                    showResult('❌ No user authenticated.', false);
+                    return;
+                }
+
+                // Check profanity records
+                const recordsQuery = query(
+                    collection(db, 'profanity_records'),
+                    where('userId', '==', user.uid)
+                );
+                const recordsSnapshot = await getDocs(recordsQuery);
+
+                // Check user's profanity count
+                const userDoc = await getDoc(doc(db, 'users', user.uid));
+
+                // Check global stats
+                const globalDoc = await getDoc(doc(db, 'admin_stats', 'profanity_counter'));
+
+                let result = 'Firestore Data Check:\n\n';
+                
+                result += `📊 Profanity Records: ${recordsSnapshot.docs.length} found\n`;
+                recordsSnapshot.docs.forEach((doc, index) => {
+                    const data = doc.data();
+                    result += `  ${index + 1}. ${data.context} (${data.language}): ${data.wordCount} words - ${data.date}\n`;
+                });
+                
+                if (userDoc.exists()) {
+                    const userData = userDoc.data();
+                    result += `\n👤 User Profanity Count: ${userData.profanityCount || 0}`;
+                } else {
+                    result += '\n👤 User document not found';
+                }
+
+                if (globalDoc.exists()) {
+                    const globalData = globalDoc.data();
+                    result += `\n🌍 Global Profanity Count: ${globalData.totalCount || 0}`;
+                } else {
+                    result += '\n🌍 Global stats not found';
+                }
+
+                showResult(result);
+            } catch (error) {
+                showResult(`Error checking Firestore: ${error.message}`, false);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        function clearResults() {
+            document.getElementById('result').style.display = 'none';
+        }
+
+        function testCleanText() {
+            const testCases = [
+                'Hello, how are you today?',
+                'I would like to learn Spanish',
+                'Can you help me with my homework?',
+                'Good morning, have a nice day!',
+                'Thank you for your assistance'
+            ];
+            
+            let results = [];
+            testCases.forEach(text => {
+                const validation = ProfanityFilterService.validateContent(text, { recordProfanity: false });
+                results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
+            });
+            
+            showResult('Clean text test completed. All should be allowed.\n\n' + results.join('\n'));
+        }
+
+        function testProfanity() {
+            const testCases = [
+                'This is a fucking test',
+                'What the hell are you doing?',
+                'You are such a stupid person',
+                'Go to hell you bastard'
+            ];
+            
+            let results = [];
+            testCases.forEach(text => {
+                const validation = ProfanityFilterService.validateContent(text, { recordProfanity: true, context: 'web_test', language: 'en' });
+                results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
+            });
+            
+            showResult('Profanity test completed. All should be blocked.\n\n' + results.join('\n'));
+        }
+
+        function testViolence() {
+            const testCases = [
+                'I will kill you',
+                'Go kill yourself',
+                'KYS',
+                'You should die',
+                'I hate you so much'
+            ];
+            
+            let results = [];
+            testCases.forEach(text => {
+                const validation = ProfanityFilterService.validateContent(text, { recordProfanity: true, context: 'web_test', language: 'en' });
+                results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
+            });
+            
+            showResult('Violence test completed. All should be blocked.\n\n' + results.join('\n'));
+        }
+
+        function testMultilingual() {
+            const testCases = [
+                'Eres un hijo de puta', // Spanish
+                'Ni ma de', // Chinese romanized
+                'Kuso yarou', // Japanese romanized
+                'Sibal gaesaekki' // Korean romanized
+            ];
+            
+            let results = [];
+            testCases.forEach(text => {
+                const validation = ProfanityFilterService.validateContent(text, { recordProfanity: true, context: 'web_test', language: 'multilingual' });
+                results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
+            });
+            
+            showResult('Multilingual test completed. All should be blocked.\n\n' + results.join('\n'));
+        }
+
+        // Initialize
+        async function init() {
+            try {
+                // Sign in anonymously for testing
+                await signInAnonymously(auth);
+                document.getElementById('firestoreStatus').textContent = '✅ Connected to Firestore (Anonymous user)';
+            } catch (error) {
+                document.getElementById('firestoreStatus').textContent = `❌ Firestore connection failed: ${error.message}`;
+            }
+        }
+
+        // Make functions available globally
+        window.testProfanityRecording = testProfanityRecording;
+        window.checkFirestoreData = checkFirestoreData;
+        window.clearResults = clearResults;
+        window.testCleanText = testCleanText;
+        window.testProfanity = testProfanity;
+        window.testViolence = testViolence;
+        window.testMultilingual = testMultilingual;
+
+        // Initialize on load
+        init();
+    </script>
+</body>
+</html>

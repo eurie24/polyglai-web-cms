@@ -131,7 +131,7 @@ export class AzureSpeechService {
    */
   async startSpeechRecognition(
     language: string = 'en-US',
-    onResult: (text: string) => void,
+    onResult: (text: string, azureResponse?: Record<string, unknown>) => void,
     onError: (error: string) => void,
     onStatus: (status: string) => void
   ): Promise<() => void> {
@@ -299,9 +299,9 @@ export class AzureSpeechService {
           console.log('🔄 Starting speech-to-text conversion...');
           
           try {
-            const text = await this.convertAudioToText(processedAudioBlob, language);
-            console.log('✅ Speech converted successfully:', text);
-            onResult(text);
+            const result = await this.convertAudioToTextWithResponse(processedAudioBlob, language);
+            console.log('✅ Speech converted successfully:', result.text);
+            onResult(result.text, result.azureResponse);
           } catch (azureError) {
             console.error('❌ Azure conversion failed:', azureError);
             
@@ -484,6 +484,14 @@ export class AzureSpeechService {
    * Convert audio blob to text using Azure Speech Services
    */
   private async convertAudioToText(audioBlob: Blob, language: string): Promise<string> {
+    const result = await this.convertAudioToTextWithResponse(audioBlob, language);
+    return result.text;
+  }
+
+  /**
+   * Convert audio blob to text using Azure Speech Services and return full response
+   */
+  private async convertAudioToTextWithResponse(audioBlob: Blob, language: string): Promise<{text: string, azureResponse: Record<string, unknown>}> {
     try {
       // Use the working endpoint for all formats since v3.1 is giving 404
       const url = `https://${this.region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=${language}&format=detailed`;
@@ -541,16 +549,16 @@ export class AzureSpeechService {
         if (bestResult) {
           if (bestResult.Display) {
             console.log('Found text in NBest[0].Display:', bestResult.Display);
-            return bestResult.Display;
+            return { text: bestResult.Display, azureResponse: result };
           } else if (bestResult.Lexical) {
             console.log('Found text in NBest[0].Lexical:', bestResult.Lexical);
-            return bestResult.Lexical;
+            return { text: bestResult.Lexical, azureResponse: result };
           } else if (bestResult.ITN) {
             console.log('Found text in NBest[0].ITN:', bestResult.ITN);
-            return bestResult.ITN;
+            return { text: bestResult.ITN, azureResponse: result };
           } else if (bestResult.MaskedITN) {
             console.log('Found text in NBest[0].MaskedITN:', bestResult.MaskedITN);
-            return bestResult.MaskedITN;
+            return { text: bestResult.MaskedITN, azureResponse: result };
           } else {
             console.log('NBest[0] properties:', Object.keys(bestResult));
           }
@@ -560,7 +568,7 @@ export class AzureSpeechService {
       // The response format is different for this endpoint
       if (result.RecognitionStatus === 'Success') {
         if (result.DisplayText && result.DisplayText.trim() !== '') {
-          return result.DisplayText;
+          return { text: result.DisplayText, azureResponse: result };
         } else {
           // Check for confidence score and other details
           const duration = result.Duration ? `${result.Duration / 10000}ms` : 'unknown';

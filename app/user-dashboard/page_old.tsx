@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
+import CustomDialog from '../../src/components/CustomDialog';
+import { useCustomDialog } from '../../src/hooks/useCustomDialog';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../src/lib/firebase';
 
@@ -40,6 +42,7 @@ export default function UserDashboard() {
   const [characterLimit] = useState(100);
   const [showSourceLangSelector, setShowSourceLangSelector] = useState(false);
   const [showTargetLangSelector, setShowTargetLangSelector] = useState(false);
+  const { dialogState, showError, hideDialog } = useCustomDialog();
   
   // File translation state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -239,11 +242,21 @@ export default function UserDashboard() {
     }
   };
 
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const speakText = (text: string) => {
-    if ('speechSynthesis' in window && text) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      window.speechSynthesis.speak(utterance);
+    if (!text || !text.trim()) return;
+    if (!('speechSynthesis' in window)) return;
+    const synth = window.speechSynthesis;
+    if (synth.speaking || synth.pending) {
+      synth.cancel();
+      setIsSpeaking(false);
+      return;
     }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.onerror = () => setIsSpeaking(false);
+    utterance.onend = () => setIsSpeaking(false);
+    setIsSpeaking(true);
+    synth.speak(utterance);
   };
 
   const copyToClipboard = (text: string) => {
@@ -258,7 +271,7 @@ export default function UserDashboard() {
     if (file) {
       // Check file size (5MB limit)
       if (file.size > 5 * 1024 * 1024) {
-        alert('File size exceeds 5MB limit');
+        showError('File Too Large', 'File size exceeds 5MB limit');
         return;
       }
       setSelectedFile(file);
@@ -381,7 +394,7 @@ export default function UserDashboard() {
               <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
               </svg>
-              Translate
+              Snap & Go
             </button>
             
             <button
@@ -574,7 +587,6 @@ export default function UserDashboard() {
 
         {activeSection === 'translate' && (
           <div className="max-w-6xl">
-            <h1 className="text-3xl font-bold text-gray-900 mb-8">Translate</h1>
             
             {/* Translation Mode Selector */}
             <div className="flex mb-6 bg-gray-100 p-1 rounded-lg w-fit">
@@ -597,6 +609,16 @@ export default function UserDashboard() {
                 }`}
               >
                 File Translation
+              </button>
+              <button
+                onClick={() => setTranslationMode('camera')}
+                className={`px-6 py-2 rounded-md transition-all ${
+                  translationMode === 'camera'
+                    ? 'bg-[#0277BD] text-white shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Camera translate
               </button>
             </div>
 
@@ -704,9 +726,18 @@ export default function UserDashboard() {
                         onClick={() => speakText(outputText)}
                         className="p-2 hover:bg-gray-200 rounded-full transition-colors"
                       >
-                        <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 14.142M8.464 8.464a5 5 0 017.072 0M6.636 6.636a9 9 0 0112.728 0" />
-                        </svg>
+                        {isSpeaking ? (
+                          <svg className="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                            <rect x="6" y="5" width="4" height="14" rx="1"></rect>
+                            <rect x="14" y="5" width="4" height="14" rx="1"></rect>
+                          </svg>
+                        ) : (
+                          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5l-6 6H2v2h3l6 6V5z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 9a3 3 0 010 6" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7a7 7 0 010 10" />
+                          </svg>
+                        )}
                       </button>
                     </div>
                     <button 
@@ -859,6 +890,21 @@ export default function UserDashboard() {
                 )}
               </div>
             )}
+
+            {/* Camera translate */}
+            {translationMode === 'camera' && (
+              <div className="space-y-6">
+                <div className="bg-white rounded-xl border-2 border-dashed border-gray-300 p-8 text-center">
+                  <div className="mx-auto w-16 h-16 bg-[#0277BD] rounded-full flex items-center justify-center mb-4">
+                    <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7h4l2-3h6l2 3h4a2 2 0 012 2v8a2 2 0 01-2 2H3a2 2 0 01-2-2V9a2 2 0 012-2zm9 3a4 4 0 100 8 4 4 0 000-8z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Mobile-only feature</h3>
+                  <p className="text-gray-600">Camera translate is only available in the PolyglAI mobile app. Please use the app to access this feature.</p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -920,7 +966,7 @@ export default function UserDashboard() {
 
       {/* Language Selector Modals */}
       {showSourceLangSelector && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/10 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-96 max-h-96 overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold">Select Source Language</h3>
@@ -953,7 +999,7 @@ export default function UserDashboard() {
       )}
 
       {showTargetLangSelector && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/10 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-96 max-h-96 overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold">Select Target Language</h3>
@@ -983,6 +1029,21 @@ export default function UserDashboard() {
             </div>
           </div>
         </div>
+      )}
+      {/* Custom Dialog */}
+      {dialogState.isOpen && dialogState.options && (
+        <CustomDialog
+          isOpen={dialogState.isOpen}
+          onClose={hideDialog}
+          title={dialogState.options.title}
+          message={dialogState.options.message}
+          type={dialogState.options.type}
+          onConfirm={dialogState.options.onConfirm}
+          onCancel={dialogState.options.onCancel}
+          confirmText={dialogState.options.confirmText}
+          cancelText={dialogState.options.cancelText}
+          showCancel={dialogState.options.type === 'confirm'}
+        />
       )}
     </div>
   );
