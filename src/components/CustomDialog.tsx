@@ -90,7 +90,7 @@ const CustomDialog: React.FC<CustomDialogProps> = ({
     }
   };
 
-  const { titleColor, messageColor, buttonColor, borderColor } = getColors();
+  const { titleColor, messageColor, buttonColor } = getColors();
 
   return (
     <div 

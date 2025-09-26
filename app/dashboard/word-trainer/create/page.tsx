@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, addDoc, getDocs, query, orderBy } from 'firebase/firestore';
 import { auth, db } from '../../../../src/lib/firebase';
@@ -14,7 +14,7 @@ type Language = {
   code: string;
 };
 
-export default function CreateWordTrainerQuestion() {
+function CreateWordTrainerContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(true);
@@ -424,5 +424,17 @@ export default function CreateWordTrainerQuestion() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function CreateWordTrainerQuestion() {
+  return (
+    <Suspense fallback={
+      <div className="p-6 flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#0277BD]"></div>
+      </div>
+    }>
+      <CreateWordTrainerContent />
+    </Suspense>
   );
 } 

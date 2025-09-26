@@ -40,7 +40,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, userId, resolved });
   } catch (e) {
-    // eslint-disable-next-line no-console
     console.error('Failed to update feedback resolved status', e);
     return NextResponse.json({ success: false, error: 'Internal error' }, { status: 500 });
   }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Tesseract from 'tesseract.js';
@@ -18,7 +18,7 @@ import PerformanceMonitor from '../../src/components/PerformanceMonitor';
 // duplicate imports removed
 
 // Simple in-memory cache for Firestore data
-const cache = new Map<string, { data: any; timestamp: number; ttl: number }>();
+const cache = new Map<string, { data: unknown; timestamp: number; ttl: number }>();
 
 const getCachedData = (key: string) => {
   const cached = cache.get(key);
@@ -28,7 +28,7 @@ const getCachedData = (key: string) => {
   return null;
 };
 
-const setCachedData = (key: string, data: any, ttl: number = 5 * 60 * 1000) => {
+const setCachedData = (key: string, data: unknown, ttl: number = 5 * 60 * 1000) => {
   cache.set(key, { data, timestamp: Date.now(), ttl });
 };
 
@@ -63,7 +63,7 @@ async function getTotalAssessmentsForLevel(language: string, level: string): Pro
     
     if (originalDoc.exists()) {
       const data = originalDoc.data();
-      const characters = data?.[level.toLowerCase()] as any[] | undefined;
+      const characters = data?.[level.toLowerCase()] as unknown[] | undefined;
       if (characters && characters.length > 0) {
         console.log(`Found ${characters.length} characters for ${language} ${level} (original format)`);
         return characters.length;
@@ -100,10 +100,8 @@ const SkeletonStats = () => (
 // Extend Window interface for Speech Recognition (keeping for compatibility)
 declare global {
   interface Window {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    webkitSpeechRecognition: any;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    SpeechRecognition: any;
+    webkitSpeechRecognition: unknown;
+    SpeechRecognition: unknown;
   }
 }
 
@@ -113,27 +111,28 @@ type UserProfile = {
   preferredLanguage: string;
   uid: string;
   avatarUrl?: string;
-  createdAt?: any;
+  createdAt?: unknown;
 };
 
 // Helper function to format joined date text
-const getJoinedDateText = (createdAt: any) => {
+const getJoinedDateText = (createdAt: unknown) => {
   if (!createdAt) return 'Joined recently';
 
   try {
     // Handle different Timestamp formats from Firestore
     let createdDate: Date;
     
-    if (createdAt.toDate && typeof createdAt.toDate === 'function') {
+    const createdAtAsAny = createdAt as { toDate?: () => Date; seconds?: number };
+    if (createdAtAsAny.toDate && typeof createdAtAsAny.toDate === 'function') {
       // Firestore Timestamp object
-      createdDate = createdAt.toDate();
-    } else if (createdAt.seconds) {
+      createdDate = createdAtAsAny.toDate();
+    } else if (createdAtAsAny.seconds) {
       // Firestore Timestamp with seconds property
-      createdDate = new Date(createdAt.seconds * 1000);
+      createdDate = new Date(createdAtAsAny.seconds * 1000);
     } else if (typeof createdAt === 'string') {
       createdDate = new Date(createdAt);
     } else {
-      createdDate = new Date(createdAt);
+      createdDate = new Date(createdAt as string | number);
     }
 
     const now = new Date();
@@ -168,7 +167,7 @@ const getJoinedDateText = (createdAt: any) => {
   }
 };
 
-export default function UserDashboard() {
+function UserDashboardContent() {
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -207,7 +206,8 @@ export default function UserDashboard() {
   
   // File translation state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [fileTranslationResult, setFileTranslationResult] = useState('');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_fileTranslationResult, setFileTranslationResult] = useState('');
   const [fileTranslatedText, setFileTranslatedText] = useState('');
   const [fileTransliterationText, setFileTransliterationText] = useState('');
 
@@ -223,11 +223,11 @@ export default function UserDashboard() {
     if (!p) return '';
     return p.startsWith('assets/') ? `/${p.replace(/^assets\//, '')}` : p;
   };
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_isSavingProfile, setIsSavingProfile] = useState(false);
   
   // Speech recognition state
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [speechRecognition, setSpeechRecognition] = useState<any | null>(null);
+  const [speechRecognition, setSpeechRecognition] = useState<unknown | null>(null);
   const [speechStatus, setSpeechStatus] = useState<string>('');
   const [speechFailed, setSpeechFailed] = useState(false);
 
@@ -319,8 +319,8 @@ export default function UserDashboard() {
       const badgeCacheKey = `badges_${userId}`;
       const cachedBadges = getCachedData(badgeCacheKey);
       
-      if (cachedBadges && cachedBadges.data) {
-        setUserBadges(cachedBadges.data);
+      if (cachedBadges && (cachedBadges as { data: unknown }).data) {
+        setUserBadges((cachedBadges as { data: Record<string, boolean> }).data);
         setBadgeLoading(false);
         return;
       }
@@ -412,29 +412,29 @@ export default function UserDashboard() {
       let prefLang = 'english';
 
       // Check main user document first
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        const rawPreferredLanguage = userData.preferredLanguage || 'english';
+      if ((userDoc as { exists: () => boolean }).exists()) {
+        const userData = (userDoc as { data: () => Record<string, unknown> }).data();
+        const rawPreferredLanguage = (userData.preferredLanguage as string) || 'english';
         profile = {
-          name: userData.name || userData.displayName || 'User',
-          email: userData.email || '',
+          name: (userData.name as string) || (userData.displayName as string) || 'User',
+          email: (userData.email as string) || '',
           preferredLanguage: rawPreferredLanguage,
           uid: userId,
-          avatarUrl: normalizeAssetPath(userData.avatarUrl || userData.avatarURL || userData.photoURL || '/updated avatars/3.svg'),
+          avatarUrl: normalizeAssetPath((userData.avatarUrl as string) || (userData.avatarURL as string) || (userData.photoURL as string) || '/updated avatars/3.svg'),
           createdAt: userData.createdAt
         };
         prefLang = mapDisplayNameToCode(rawPreferredLanguage);
       }
       // Fallback to profile subcollection
-      else if (profileDoc.exists()) {
-        const profileData = profileDoc.data();
-        const rawPreferredLanguage = profileData.preferredLanguage || 'english';
+      else if ((profileDoc as { exists: () => boolean }).exists()) {
+        const profileData = (profileDoc as { data: () => Record<string, unknown> }).data();
+        const rawPreferredLanguage = (profileData.preferredLanguage as string) || 'english';
         profile = {
-          name: profileData.name || 'User',
-          email: profileData.email || '',
+          name: (profileData.name as string) || 'User',
+          email: (profileData.email as string) || '',
           preferredLanguage: rawPreferredLanguage,
           uid: userId,
-          avatarUrl: normalizeAssetPath(profileData.avatarUrl || profileData.avatarURL || '/updated avatars/3.svg'),
+          avatarUrl: normalizeAssetPath((profileData.avatarUrl as string) || (profileData.avatarURL as string) || '/updated avatars/3.svg'),
           createdAt: profileData.createdAt
         };
         prefLang = mapDisplayNameToCode(rawPreferredLanguage);
@@ -450,8 +450,8 @@ export default function UserDashboard() {
           const usageCacheKey = `usage_${userId}`;
           const cachedUsage = getCachedData(usageCacheKey);
           
-          if (cachedUsage && cachedUsage.data) {
-            const data = cachedUsage.data;
+          if (cachedUsage && (cachedUsage as { data: unknown }).data) {
+            const data = (cachedUsage as { data: Record<string, unknown> }).data;
             const streakDays = Number((data.streakDays as number | undefined) ?? (data.currentStreak as number | undefined) ?? 0);
             const lessonsCompleted = Number((data.lessonsCompleted as number | undefined) ?? (data.totalLessons as number | undefined) ?? 0);
             const totalPoints = Number(data.totalPoints || 0);
@@ -479,7 +479,7 @@ export default function UserDashboard() {
               getDocs(collection(db, 'users', userId, 'languages'))
             ]);
             
-            const basePoints = basePointsDoc.exists() ? Number(((basePointsDoc.data() as any).totalPoints as number | undefined) ?? 0) : 0;
+            const basePoints = basePointsDoc.exists() ? Number((basePointsDoc.data() as { totalPoints?: number }).totalPoints ?? 0) : 0;
             
             // Calculate word trainer points
             let wordTrainerPoints = 0;
@@ -503,7 +503,7 @@ export default function UserDashboard() {
                     );
                     let completedAssessments = 0;
                     assessmentsSnap.forEach(d => {
-                      const scoreVal = (d.data() as any).score ?? 0;
+                      const scoreVal = (d.data() as { score?: unknown }).score ?? 0;
                       const scoreNum = typeof scoreVal === 'number' ? scoreVal : (typeof scoreVal === 'string' ? parseInt(scoreVal, 10) : 0);
                       if (!isNaN(scoreNum) && scoreNum > 0) completedAssessments++;
                     });
@@ -565,13 +565,13 @@ export default function UserDashboard() {
           const assessmentCacheKey = `assessments_${userId}_${prefLang}`;
           const cachedAssessment = getCachedData(assessmentCacheKey);
           
-          if (cachedAssessment && cachedAssessment.data) {
-            const data = cachedAssessment.data;
-            setBeginnerAssessmentCount(data.beginnerCount || 0);
-            setIntermediateAssessmentCount(data.intermediateCount || 0);
-            setBeginnerTotalItems(data.beginnerTotal || 0);
-            setIntermediateTotalItems(data.intermediateTotal || 0);
-            setLanguagePoints(data.assessmentPoints || 0);
+          if (cachedAssessment && (cachedAssessment as { data: unknown }).data) {
+            const data = (cachedAssessment as { data: Record<string, unknown> }).data;
+            setBeginnerAssessmentCount(Number(data.beginnerCount) || 0);
+            setIntermediateAssessmentCount(Number(data.intermediateCount) || 0);
+            setBeginnerTotalItems(Number(data.beginnerTotal) || 0);
+            setIntermediateTotalItems(Number(data.intermediateTotal) || 0);
+            setLanguagePoints(Number(data.assessmentPoints) || 0);
             return;
           }
           
@@ -674,7 +674,7 @@ export default function UserDashboard() {
               }
             }
           });
-          (window as any).__polyglaiUserListeners = [unsubMain, unsubProfile];
+          (window as { __polyglaiUserListeners?: unknown[] }).__polyglaiUserListeners = [unsubMain, unsubProfile];
         } catch {}
         // Load badges lazily after initial data load
         setTimeout(() => loadUserBadges(user.uid), 1000);
@@ -684,7 +684,7 @@ export default function UserDashboard() {
     });
     return () => {
       try {
-        const arr: Array<() => void> | undefined = (window as any).__polyglaiUserListeners;
+        const arr: Array<() => void> | undefined = (window as { __polyglaiUserListeners?: Array<() => void> }).__polyglaiUserListeners;
         if (Array.isArray(arr)) arr.forEach((fn) => { try { fn(); } catch {} });
       } catch {}
       unsubscribe();
@@ -766,7 +766,7 @@ export default function UserDashboard() {
   useEffect(() => {
     return () => {
       if (speechRecognition) {
-        speechRecognition.stop();
+        (speechRecognition as { stop: () => void }).stop();
       }
     };
   }, [speechRecognition]);
@@ -808,6 +808,7 @@ export default function UserDashboard() {
     return displayNameToCode[normalized] || 'english';
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleSignOut = async () => {
     try {
       await signOut(auth);
@@ -818,6 +819,7 @@ export default function UserDashboard() {
   };
 
   // Edit profile functions
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleEditProfileOpen = () => {
     if (userProfile) {
       setEditName(userProfile.name || '');
@@ -826,6 +828,7 @@ export default function UserDashboard() {
     setShowEditProfile(true);
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleEditProfileSave = async () => {
     if (!userProfile?.uid) return;
     
@@ -869,6 +872,7 @@ export default function UserDashboard() {
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleEditProfileCancel = () => {
     setShowEditProfile(false);
     setEditName('');
@@ -1040,20 +1044,31 @@ export default function UserDashboard() {
       const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
       if (SpeechRecognition) {
         return new Promise((resolve, reject) => {
-          const recognition = new SpeechRecognition();
+          const recognition = (new (SpeechRecognition as unknown as { new(): unknown })()) as {
+            lang: string;
+            continuous: boolean;
+            interimResults: boolean;
+            maxAlternatives: number;
+            state: string;
+            onresult: (event: { results: unknown }) => void;
+            onerror: (event: { error?: string }) => void;
+            onend: () => void;
+            start: () => void;
+            stop: () => void;
+          };
           recognition.lang = 'en-US';
           recognition.continuous = false;
           recognition.interimResults = false;
           recognition.maxAlternatives = 1;
           
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          recognition.onresult = (event: any) => {
-            const transcript = event.results[0][0].transcript;
-            resolve(transcript);
+          recognition.onresult = (event: { results: unknown }) => {
+            const results = event.results as unknown[] || [];
+            const firstResult = results[0] as unknown[] || [];
+            const firstAlternative = firstResult[0] as { transcript?: string };
+            resolve(firstAlternative?.transcript ?? '');
           };
           
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          recognition.onerror = (event: any) => {
+          recognition.onerror = (event: { error?: string }) => {
             reject(new Error('Speech recognition failed: ' + event.error));
           };
           
@@ -1281,8 +1296,8 @@ export default function UserDashboard() {
       }
     } else {
       // Stop current recording if already listening
-      if (speechRecognition && speechRecognition.stop) {
-        speechRecognition.stop();
+      if (speechRecognition && (speechRecognition as { stop?: () => void }).stop) {
+        (speechRecognition as { stop: () => void }).stop();
       setSpeechRecognition(null);
       setSpeechStatus('');
       }
@@ -1588,7 +1603,7 @@ export default function UserDashboard() {
       const data = await response.json();
       if (data && data[0] && data[0][0] && data[0][0][0]) {
         console.log('Google Translate successful');
-        return data[0].map((item: any) => item[0]).join('');
+        return data[0].map((item: unknown[]) => item[0]).join('');
       }
       throw new Error('No translation from Google Translate');
     } catch (error) {
@@ -1603,7 +1618,8 @@ export default function UserDashboard() {
     const raw = (data.text || '').trim();
     // Heuristics to filter out random OCR garbage from images without text
     const confidence = typeof data.confidence === 'number' ? data.confidence : 0;
-    const words: Array<{ text?: string; confidence?: number }> = Array.isArray((data as any).words) ? (data as any).words : [];
+    const words: Array<{ text?: string; confidence?: number }> = Array.isArray((data as unknown as Record<string, unknown>)?.words) ? 
+      (data as unknown as Record<string, unknown>)?.words as Array<{ text?: string; confidence?: number }> : [];
     const highConfWordExists = words.some(w => (w?.confidence || 0) >= 70 && (w?.text || '').trim().length >= 2);
     const meaningful = raw
       // keep common unicode letter ranges (Latin-1, CJK, Hiragana/Katakana, Hangul) and digits/spaces
@@ -1620,13 +1636,14 @@ export default function UserDashboard() {
   };
 
   // Extract text content from a PDF file using pdf.js in the browser
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const extractTextFromPdf = async (file: File): Promise<string> => {
     const arrayBuffer = await file.arrayBuffer();
     // Use legacy build and disable worker to avoid CDN/CSP issues
-    const pdfModule: any = await import('pdfjs-dist/legacy/build/pdf');
-    const pdfjsLib: any = (pdfModule && pdfModule.default) ? pdfModule.default : pdfModule;
-    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer, useWorker: false });
-    const pdf = await loadingTask.promise;
+    const pdfModule: unknown = await import('pdfjs-dist/legacy/build/pdf');
+    const pdfjsLib: unknown = (pdfModule && (pdfModule as { default?: unknown }).default) ? (pdfModule as { default: unknown }).default : pdfModule;
+    const loadingTask = (pdfjsLib as unknown as { getDocument: (params: { data: ArrayBuffer; useWorker: boolean }) => { promise: Promise<unknown> } }).getDocument({ data: arrayBuffer, useWorker: false });
+    const pdf = (await loadingTask.promise) as { numPages: number; getPage: (pageNum: number) => { getTextContent: () => { items: Array<{ str?: string }> } } };
     // Enforce single-page PDFs only
     if (pdf.numPages > 1) {
       throw new Error('PDF not supported: more than 1 page. Please upload a single-page PDF.');
@@ -1636,7 +1653,7 @@ export default function UserDashboard() {
       const page = await pdf.getPage(pageNum);
       const textContent = await page.getTextContent();
       const pageText = (textContent.items || [])
-        .map((item: any) => (item && item.str ? item.str : ''))
+        .map((item: { str?: string }) => (item && item.str ? item.str : ''))
         .join(' ');
       fullText += (pageNum > 1 ? '\n\n' : '') + pageText;
     }
@@ -2132,7 +2149,7 @@ export default function UserDashboard() {
 
             {/* What's New Section - Always allow Advanced English evaluation */}
             <div className="mb-8">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">What's New</h2>
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">What&apos;s New</h2>
 
               <div className="rounded-xl border border-gray-200 p-6 bg-gradient-to-br from-[#29B6F6] to-[#0277BD] text-white shadow-sm">
                 <div className="flex items-start mb-4">
@@ -3034,7 +3051,7 @@ export default function UserDashboard() {
                       { key: 'crown_of_fluency', name: 'Crown of Fluency', desc: 'Score 90+ in an assessment 5 times', img: '/badges/crown_of_fluency.png' },
                       { key: 'legend_of_polyglai', name: 'Legend of PolyglAI', desc: 'Unlock all achievements in the app', img: '/badges/legend_of_polyglai.png' },
                     ];
-                    const locked = allChallenges.filter(c => !(userBadges as any)?.[c.key]);
+                    const locked = allChallenges.filter(c => !(userBadges as Record<string, unknown>)?.[c.key]);
                     const toShow = locked.slice(0, 3);
                     if (toShow.length === 0) {
                       return (
@@ -3104,5 +3121,17 @@ export default function UserDashboard() {
         />
       )}
     </div>
+  );
+}
+
+export default function UserDashboard() {
+  return (
+    <Suspense fallback={
+      <div className="p-6 flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#0277BD]"></div>
+      </div>
+    }>
+      <UserDashboardContent />
+    </Suspense>
   );
 }

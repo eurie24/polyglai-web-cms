@@ -222,6 +222,7 @@ function getCommonPronunciationVariations(word: string): string[] {
   return variations[word.toLowerCase()] || [word];
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function scorePronunciation(target: string, actual: string, level: string = 'beginner', language: string = 'english'): number {
   const t = target.trim().toLowerCase();
   const a = actual.trim().toLowerCase();
@@ -425,6 +426,7 @@ function computeAssessmentScores(targetText: string, transcript: string, level: 
 }
 
 // Unified scoring function to ensure consistency across all UI sections
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function calculateOverallScore(targetText: string, transcript: string, level: string, language: string, originalScore: number): number {
   const computed = computeAssessmentScores(targetText, transcript, level, language);
   return computed.overall;
@@ -750,7 +752,7 @@ function EvalPageContent() {
   const [assessmentsLoaded, setAssessmentsLoaded] = useState(false);
   const loadedKey = useRef<string>(''); // Track what we've loaded to prevent re-loading
 
-  const [sfxVolume, setSfxVolume] = useState<number>(1.0);
+  const [sfxVolume] = useState<number>(1.0);
   const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null);
   const [microphoneAutoStop, setMicrophoneAutoStop] = useState<boolean>(true);
   const silenceMonitorRef = useRef<{ stop: () => void } | null>(null);
@@ -1152,8 +1154,12 @@ function EvalPageContent() {
                 if (maxDev > threshold) lastAbove = Date.now();
                 if (Date.now() - lastAbove > silenceWindowMs) {
                   stopped = true;
-                  try { mediaRecorder && mediaRecorder.state === 'recording' && mediaRecorder.stop(); } catch {}
-                  try { stopRef.current && stopRef.current(); } catch {}
+                  try { 
+                    if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop(); 
+                  } catch {}
+                  try { 
+                    if (stopRef.current) stopRef.current(); 
+                  } catch {}
                 } else {
                   requestAnimationFrame(tick);
                 }
@@ -1460,7 +1466,6 @@ function EvalPageContent() {
                 setTranscript('');
                 setScore(null);
                 setShowResult(false);
-                setShowDetails(false);
               }}
               disabled={items.length <= 1}
               className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1808,9 +1813,9 @@ function EvalPageContent() {
                           const scoreData = highScores.recentScores[0];
                           console.log('High score detailed feedback - scoreData:', scoreData);
                           console.log('High score detailed feedback - apiResponse:', scoreData.apiResponse);
-                          console.log('High score detailed feedback - apiResponse.result:', (scoreData.apiResponse as any)?.result);
-                          console.log('High score detailed feedback - words:', (scoreData.apiResponse as any)?.result?.words);
-                          console.log('High score detailed feedback - phonemes:', (scoreData.apiResponse as any)?.result?.words?.[0]?.phonemes);
+                          console.log('High score detailed feedback - apiResponse.result:', (scoreData.apiResponse as { result?: unknown }).result);
+                          console.log('High score detailed feedback - words:', (scoreData.apiResponse as { result?: { words?: unknown[] } }).result?.words);
+                          console.log('High score detailed feedback - phonemes:', (scoreData.apiResponse as { result?: { words?: Array<{ phonemes?: unknown[] }> } }).result?.words?.[0]?.phonemes);
                           
                           setDetailedFeedbackData({
                             targetText: targetText,

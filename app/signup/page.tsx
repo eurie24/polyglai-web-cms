@@ -1,18 +1,18 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { 
-  createUserWithEmailAndPassword,
-  updateProfile,
-  GoogleAuthProvider,
-  signInWithPopup,
-  onAuthStateChanged
-} from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../../src/lib/firebase';
+// import { 
+//   createUserWithEmailAndPassword,
+//   updateProfile,
+//   GoogleAuthProvider,
+//   signInWithPopup,
+//   onAuthStateChanged
+// } from 'firebase/auth';
+// import { doc, setDoc } from 'firebase/firestore';
+// import { auth, db } from '../../src/lib/firebase';
 
 export default function Signup() {
   const router = useRouter();

@@ -4,10 +4,10 @@ import { initAdmin } from '@/firebase/adminInit';
 
 export async function GET(
   request: Request,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
-    const { userId } = params;
+    const { userId } = await params;
     if (!userId) return NextResponse.json({ success: false, error: 'User ID required' }, { status: 400 });
 
     const app = await initAdmin();
@@ -43,9 +43,8 @@ export async function GET(
         } catch {}
 
         try {
-          // @ts-ignore admin SDK count aggregation
           const countSnap = await db.collection('languages').doc(lang).collection('characters').doc(level).collection('items').count().get();
-          const c = (countSnap as unknown as { count?: number }).count ?? (countSnap as any)?._data?.count ?? 0;
+          const c = (countSnap as unknown as { count?: number }).count ?? (countSnap as { _data?: { count?: number } })?._data?.count ?? 0;
           if (c > 0) itemCounts[level] = c;
         } catch {}
       }

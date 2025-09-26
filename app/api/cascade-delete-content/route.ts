@@ -184,8 +184,6 @@ export async function POST(request: Request) {
             
             const languageDoc = await languageDocRef.get();
             if (languageDoc.exists) {
-              const languageData = languageDoc.data();
-              
               // Recalculate assessment counts
               let totalAssessments = 0;
               const levels = ['beginner', 'intermediate', 'advanced'];

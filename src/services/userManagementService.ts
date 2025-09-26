@@ -109,7 +109,7 @@ export class UserManagementService {
   /**
    * Get users with high profanity counts
    */
-  static async getHighRiskUsers(threshold: number = 10): Promise<any[]> {
+  static async getHighRiskUsers(threshold: number = 10): Promise<unknown[]> {
     try {
       // Get profanity records to identify high-risk users
       const profanityQuery = query(
@@ -130,8 +130,8 @@ export class UserManagementService {
 
       // Filter users above threshold
       const highRiskUserIds = Array.from(userCounts.entries())
-        .filter(([userId, count]) => count >= threshold)
-        .map(([userId, count]) => ({ userId, count }));
+        .filter(([, count]) => count >= threshold)
+        .map(([, count]) => ({ count }));
 
       return highRiskUserIds;
     } catch (error) {

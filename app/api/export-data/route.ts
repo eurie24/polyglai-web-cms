@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic';
 interface UserData {
   id: string;
   name: string;
+  email?: string;
   role: string;
   gender: string;
   age: string | number;
@@ -50,27 +51,23 @@ function formatDate(date: unknown): string {
 }
 
 // Helper function to sanitize user data (remove email and sensitive info)
-function sanitizeUserData(userData: any): UserData {
+function sanitizeUserData(userData: Record<string, unknown>): UserData {
   const sanitized: UserData = {
-    id: userData.id || '',
-    name: userData.name || userData.displayName || 'Unnamed User',
-    role: userData.role || 'user',
-    gender: userData.gender || '',
-    age: userData.age || '',
-    location: userData.location || '',
-    profession: userData.profession || userData.userType || '',
+    id: (userData.id as string) || '',
+    name: (userData.name as string) || (userData.displayName as string) || 'Unnamed User',
+    email: (userData.email as string) || '',
+    role: (userData.role as string) || 'user',
+    gender: (userData.gender as string) || '',
+    age: (userData.age as string | number) || '',
+    location: (userData.location as string) || '',
+    profession: (userData.profession as string) || (userData.userType as string) || '',
     createdAt: formatDate(userData.createdAt),
     lastLogin: formatDate(userData.lastLogin),
-    preferredLanguage: userData.preferredLanguage || '',
-    referralSource: userData.referralSource || '',
-    status: userData.status || 'ACTIVE'
+    preferredLanguage: (userData.preferredLanguage as string) || '',
+    referralSource: (userData.referralSource as string) || '',
+    status: (userData.status as string) || 'ACTIVE'
   };
 
-  // Remove any email references
-  delete (sanitized as any).email;
-  delete (sanitized as any).displayName;
-  delete (sanitized as any).photoURL;
-  delete (sanitized as any).avatarUrl;
 
   return sanitized;
 }
@@ -98,6 +95,7 @@ export async function GET(request: NextRequest) {
         const userData = {
           id: userId,
           ...doc.data(),
+          email: doc.data().email || '',
           name: doc.data().displayName || doc.data().name || '',
           role: doc.data().role || 'user',
           gender: doc.data().gender || '',
@@ -164,7 +162,7 @@ export async function GET(request: NextRequest) {
         // Generate Excel with only demographics
         const excelBuffer = generateExcel(sanitizedUsers);
         
-        return new NextResponse(excelBuffer, {
+        return new NextResponse(excelBuffer as BodyInit, {
           headers: {
             'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Content-Disposition': `attachment; filename="polyglai_users_${new Date().toISOString().split('T')[0]}.xlsx"`

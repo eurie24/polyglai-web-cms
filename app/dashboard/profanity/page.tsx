@@ -5,14 +5,15 @@ import { ProfanityCounterService, GlobalProfanityStats, ProfanityRecord } from '
 import CustomDialog from '../../../src/components/CustomDialog';
 import { useCustomDialog } from '../../../src/hooks/useCustomDialog';
 
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 interface ProfanityDashboardProps {}
 
 const ProfanityDashboard: React.FC<ProfanityDashboardProps> = () => {
   const [globalStats, setGlobalStats] = useState<GlobalProfanityStats | null>(null);
   const [recentRecords, setRecentRecords] = useState<ProfanityRecord[]>([]);
-  const [dailyStats, setDailyStats] = useState<any[]>([]);
-  const [languageStats, setLanguageStats] = useState<any[]>([]);
-  const [trends, setTrends] = useState<any>(null);
+  const [, setDailyStats] = useState<Record<string, unknown>[]>([]);
+  const [languageStats, setLanguageStats] = useState<Record<string, unknown>[]>([]);
+  const [, setTrends] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedTimeRange, setSelectedTimeRange] = useState<number>(30);
@@ -43,9 +44,9 @@ const ProfanityDashboard: React.FC<ProfanityDashboardProps> = () => {
 
       setGlobalStats(globalStatsData);
       setRecentRecords(recentRecordsData.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProfanityRecord)));
-      setDailyStats(dailyStatsData);
-      setLanguageStats(languageStatsData);
-      setTrends(trendsData);
+      setDailyStats(dailyStatsData as Record<string, unknown>[]);
+      setLanguageStats(languageStatsData as Record<string, unknown>[]);
+      setTrends(trendsData as Record<string, unknown>);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load profanity data');
     } finally {
@@ -208,13 +209,13 @@ const ProfanityDashboard: React.FC<ProfanityDashboardProps> = () => {
               {languageStats.length > 0 ? (
                 <div className="space-y-4">
                   {languageStats
-                    .sort((a, b) => b.count - a.count)
+                    .sort((a, b) => (b as { count: number }).count - (a as { count: number }).count)
                     .slice(0, 10)
-                    .map((stat, index) => (
-                      <div key={stat.language} className="flex items-center justify-between">
+                    .map((stat) => (
+                      <div key={(stat as { language: string }).language} className="flex items-center justify-between">
                         <div className="flex items-center">
                           <span className="text-sm font-medium text-gray-600 capitalize">
-                            {stat.language}
+                            {(stat as { language: string }).language}
                           </span>
                         </div>
                         <div className="flex items-center">
@@ -222,11 +223,11 @@ const ProfanityDashboard: React.FC<ProfanityDashboardProps> = () => {
                             <div
                               className="bg-red-600 h-2 rounded-full"
                               style={{
-                                width: `${(stat.count / Math.max(...languageStats.map(s => s.count))) * 100}%`
+                                width: `${((stat as { count: number }).count / Math.max(...languageStats.map(s => (s as { count: number }).count))) * 100}%`
                               }}
                             ></div>
                           </div>
-                          <span className="text-sm font-bold text-gray-900">{stat.count}</span>
+                          <span className="text-sm font-bold text-gray-900">{(stat as { count: number }).count}</span>
                         </div>
                       </div>
                     ))}

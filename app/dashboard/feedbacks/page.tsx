@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import Image from 'next/image';
+// import Link from 'next/link';
+// import Image from 'next/image';
 import AdminSidebar from '../../../src/components/AdminSidebar';
 import AdminProtection from '../../../src/components/AdminProtection';
 
@@ -89,8 +89,8 @@ export default function FeedbacksPage() {
       );
     });
     const sorted = [...base].sort((a, b) => {
-      const aSec = (a as any)?.createdAt?.seconds || (a as any)?.createdAt?._seconds || 0;
-      const bSec = (b as any)?.createdAt?.seconds || (b as any)?.createdAt?._seconds || 0;
+      const aSec = (a as { createdAt?: { seconds?: number; _seconds?: number } }).createdAt?.seconds || (a as { createdAt?: { _seconds?: number } }).createdAt?._seconds || 0;
+      const bSec = (b as { createdAt?: { seconds?: number; _seconds?: number } }).createdAt?.seconds || (b as { createdAt?: { _seconds?: number } }).createdAt?._seconds || 0;
       switch (sortBy) {
         case 'Newest':
           return bSec - aSec;
@@ -116,9 +116,9 @@ export default function FeedbacksPage() {
       });
       const json = await res.json();
       if (json?.success) {
-        setItems(prev => prev.map(i => i.userId === userId ? { ...i, resolved, resolvedAt: resolved ? { seconds: Math.floor(Date.now()/1000) } as any : null } : i));
+        setItems(prev => prev.map(i => i.userId === userId ? { ...i, resolved, resolvedAt: resolved ? { seconds: Math.floor(Date.now()/1000) } as { seconds: number } : null } : i));
       }
-    } catch (e) {
+    } catch {
       // noop
     }
   };
@@ -161,7 +161,7 @@ export default function FeedbacksPage() {
                 </select>
                 <select
                   value={status}
-                  onChange={(e) => setStatus(e.target.value as any)}
+                  onChange={(e) => setStatus(e.target.value as 'All' | 'Resolved' | 'Pending')}
                   className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 >
                   {['All','Resolved','Pending'].map(s => (
@@ -170,7 +170,7 @@ export default function FeedbacksPage() {
                 </select>
                 <select
                   value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as any)}
+                  onChange={(e) => setSortBy(e.target.value as 'Newest' | 'Oldest' | 'RatingHigh' | 'RatingLow')}
                   className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 >
                   {['Newest','Oldest','RatingHigh','RatingLow'].map(s => (
@@ -199,7 +199,7 @@ export default function FeedbacksPage() {
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {filtered.map((f, idx) => {
-                        const s = (f as any)?.createdAt?.seconds || (f as any)?.createdAt?._seconds || undefined;
+                        const s = (f as { createdAt?: { seconds?: number; _seconds?: number } }).createdAt?.seconds || (f as { createdAt?: { _seconds?: number } }).createdAt?._seconds || undefined;
                         return (
                           <tr key={f.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                             <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{formatDate(s)}</td>

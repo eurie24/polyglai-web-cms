@@ -48,7 +48,7 @@ export default function TestProfanityPage() {
       'Thank you for your assistance'
     ];
     
-    let results = [];
+    const results: string[] = [];
     testCases.forEach(text => {
       const validation = ProfanityFilterService.validateContent(text, { recordProfanity: false });
       results.push(`"${text}": ${validation.isValid ? 'ALLOWED' : 'BLOCKED'}`);
@@ -65,7 +65,7 @@ export default function TestProfanityPage() {
       'Go to hell you bastard'
     ];
     
-    let results = [];
+    const results: string[] = [];
     testCases.forEach(text => {
       const validation = ProfanityFilterService.validateContent(text, { 
         recordProfanity: true, 
@@ -142,7 +142,7 @@ export default function TestProfanityPage() {
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-semibold text-gray-700 mb-4">Instructions</h2>
           <div className="space-y-2 text-gray-600">
-            <p>1. <strong>Test Recording:</strong> Enter text with profanity and click "Test Recording" to see if it's detected and recorded to Firestore.</p>
+            <p>1. <strong>Test Recording:</strong> Enter text with profanity and click &quot;Test Recording&quot; to see if it&apos;s detected and recorded to Firestore.</p>
             <p>2. <strong>Test Clean Text:</strong> Click to test that clean text is allowed through.</p>
             <p>3. <strong>Test Profanity:</strong> Click to test that profanity is blocked and recorded.</p>
             <p>4. <strong>Check Console:</strong> Open browser developer tools to see detailed logging.</p>

@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, type User } from 'firebase/auth';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../src/lib/firebase';
+import Image from 'next/image';
 
 interface Badge {
   id: string;
@@ -20,7 +21,7 @@ export default function AchievementsPage() {
   const [userBadges, setUserBadges] = useState<Record<string, boolean>>({});
   const [availableBadges, setAvailableBadges] = useState<Badge[]>([]);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<any>(null);
+  const [, setUser] = useState<User | null>(null);
 
   // Load user badges from Firestore
   const loadUserBadges = useCallback(async (userId: string) => {
@@ -261,9 +262,11 @@ export default function AchievementsPage() {
                 {/* Badge Image */}
                 <div className="flex justify-center mb-4">
                   <div className="w-20 h-20 rounded-xl overflow-hidden bg-transparent flex items-center justify-center">
-                    <img
+                    <Image
                       src={`/badges/${badge.id}.png`}
                       alt={badge.name}
+                      width={80}
+                      height={80}
                       className={`w-full h-full object-contain ${isUnlocked ? '' : 'grayscale'}`}
                     />
                   </div>

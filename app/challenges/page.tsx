@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, collection, getDocs, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../../src/lib/firebase';
+import Image from 'next/image';
 
 interface Badge {
   id: string;
@@ -27,9 +28,10 @@ interface Challenge {
   isEarned: boolean;
 }
 
-// Function to get custom badge icons
+// Function to get custom badge icons  
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const getBadgeIcon = (badgeId: string) => {
-  const iconMap: Record<string, JSX.Element> = {
+  const iconMap: Record<string, React.ReactElement> = {
     rookie_linguist: (
       <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
         <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
@@ -88,7 +90,7 @@ export default function ChallengesPage() {
   const router = useRouter();
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<Record<string, unknown> | null>(null);
   const [selectedChallenge, setSelectedChallenge] = useState<Challenge | null>(null);
   const [showModal, setShowModal] = useState(false);
 
@@ -246,7 +248,7 @@ export default function ChallengesPage() {
     if (!user) return false;
     
     try {
-      await updateDoc(doc(db, 'users', user.uid, 'badges', badgeId), {
+      await updateDoc(doc(db, 'users', user.uid as string, 'badges', badgeId), {
         isClaimed: true,
         claimedAt: new Date(),
       });
@@ -273,7 +275,7 @@ export default function ChallengesPage() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        setUser(user);
+        setUser(user as unknown as Record<string, unknown>);
         await loadChallenges(user.uid);
       } else {
         router.push('/login');
@@ -334,9 +336,11 @@ export default function ChallengesPage() {
               <div className="flex items-center">
                 {/* Badge Icon */}
                 <div className="w-16 h-16 rounded-lg overflow-hidden mr-4 bg-transparent flex items-center justify-center">
-                  <img
+                  <Image
                     src={`/badges/${challenge.badgeId}.png`}
                     alt={challenge.name}
+                    width={64}
+                    height={64}
                     className={`w-full h-full object-contain ${
                       challenge.isUnlocked || challenge.isEarned ? '' : 'grayscale'
                     }`}
@@ -419,9 +423,11 @@ export default function ChallengesPage() {
               {/* Badge Display */}
               <div className="text-center mb-6">
                 <div className="w-20 h-20 mx-auto rounded-xl overflow-hidden mb-4 bg-transparent flex items-center justify-center">
-                  <img
+                  <Image
                     src={`/badges/${selectedChallenge.badgeId}.png`}
                     alt={selectedChallenge.name}
+                    width={80}
+                    height={80}
                     className={`w-full h-full object-contain ${
                       selectedChallenge.isUnlocked || selectedChallenge.isEarned ? '' : 'grayscale'
                     }`}

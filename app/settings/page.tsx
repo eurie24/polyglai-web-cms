@@ -21,7 +21,7 @@ export default function SettingsPage() {
   const [activeSettingsItem, setActiveSettingsItem] = useState('preferences');
   const [microphoneAutoStop, setMicrophoneAutoStop] = useState<boolean>(true);
   const [soundEffectsEnabled, setSoundEffectsEnabled] = useState<boolean>(true);
-  const { dialogState, showConfirm, showError, showInfo, showSuccess, hideDialog } = useCustomDialog();
+  const { dialogState, showConfirm, showError, showSuccess, hideDialog } = useCustomDialog();
   const [analyticsEnabled, setAnalyticsEnabled] = useState<boolean>(true);
   const [crashReportingEnabled, setCrashReportingEnabled] = useState<boolean>(true);
   const [personalizedAdsEnabled, setPersonalizedAdsEnabled] = useState<boolean>(false);
@@ -252,18 +252,21 @@ export default function SettingsPage() {
     await SettingsService.setSoundEffectsEnabled(next);
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleToggleAnalytics = async () => {
     const next = !analyticsEnabled;
     setAnalyticsEnabled(next);
     await SettingsService.setAnalyticsEnabled(next);
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleToggleCrash = async () => {
     const next = !crashReportingEnabled;
     setCrashReportingEnabled(next);
     await SettingsService.setCrashReportingEnabled(next);
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleToggleAds = async () => {
     const next = !personalizedAdsEnabled;
     setPersonalizedAdsEnabled(next);
@@ -295,7 +298,6 @@ export default function SettingsPage() {
         setIsGoogleSignIn(providers.includes('google.com'));
         setHasPasswordProvider(providers.includes('password'));
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.error('Failed to load profile', e);
       } finally {
         setLoadingProfile(false);
@@ -322,20 +324,20 @@ export default function SettingsPage() {
         // ignore
       }
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error('Failed to save profile', e);
     } finally {
       setSavingProfile(false);
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleAddEmail = async () => {
     const user = auth.currentUser;
     if (!user || !newEmail.trim()) return;
     try {
       // Check if the method exists before calling it
-      if ('verifyBeforeUpdateEmail' in user && typeof (user as any).verifyBeforeUpdateEmail === 'function') {
-        await (user as any).verifyBeforeUpdateEmail(newEmail.trim());
+      if ('verifyBeforeUpdateEmail' in user && typeof (user as { verifyBeforeUpdateEmail?: unknown }).verifyBeforeUpdateEmail === 'function') {
+        await ((user as { verifyBeforeUpdateEmail: (email: string) => Promise<void> }).verifyBeforeUpdateEmail)(newEmail.trim());
       } else {
         console.warn('verifyBeforeUpdateEmail method not available');
         return;
@@ -346,11 +348,11 @@ export default function SettingsPage() {
       setEmails(prev => prev.includes(newEmail.trim()) ? prev : [...prev, newEmail.trim()]);
       setNewEmail('');
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error('Failed to add email', e);
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const canRemoveEmail = (email: string): boolean => {
     const primary = auth.currentUser?.email || '';
     if (email === primary) {
@@ -360,6 +362,7 @@ export default function SettingsPage() {
     return true;
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleRemoveEmail = async (email: string) => {
     const user = auth.currentUser;
     if (!user) return;
@@ -370,7 +373,6 @@ export default function SettingsPage() {
       await updateDoc(ref, { emails: arrayRemove(email) });
       setEmails(prev => prev.filter(e => e !== email));
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error('Failed to remove email', e);
     }
   };
@@ -385,7 +387,6 @@ export default function SettingsPage() {
       await linkWithCredential(user, cred);
       setHasPasswordProvider(true);
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error('Failed to set password', e);
     }
   };
@@ -399,7 +400,6 @@ export default function SettingsPage() {
       await reauthenticateWithCredential(user, cred);
       await updatePassword(user, newPass);
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error('Failed to change password', e);
     }
   };
@@ -410,7 +410,6 @@ export default function SettingsPage() {
       await signOut(auth);
       router.push('/login');
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error('Error signing out', e);
     } finally {
       setIsSigningOut(false);
@@ -453,22 +452,23 @@ export default function SettingsPage() {
         try {
           await signOut(auth);
           router.push('/login');
-        } catch (e) {
+        } catch {
           // Even if sign out fails, redirect to login
           router.push('/login');
         }
       }, 2000);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deleting account:', error);
       
       // Handle specific error cases
       let errorMessage = 'Failed to delete account. Please try again.';
       
-      if (error.message?.includes('requires-recent-login') || 
-          error.message?.includes('recent authentication')) {
+      const errorMessageMatch = (error as { message?: string }).message || '';
+      if (errorMessageMatch.includes('requires-recent-login') || 
+          errorMessageMatch.includes('recent authentication')) {
         errorMessage = 'Account deletion requires recent authentication. Please sign out and sign in again, then try deleting your account.';
-      } else if (error.message?.includes('Invalid or expired token')) {
+      } else if (errorMessageMatch.includes('Invalid or expired token')) {
         errorMessage = 'Your session has expired. Please sign in again and try deleting your account.';
       }
       

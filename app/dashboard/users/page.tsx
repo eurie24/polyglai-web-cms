@@ -6,10 +6,10 @@ import Image from 'next/image';
 import AdminSidebar from '../../../src/components/AdminSidebar';
 import Link from 'next/link';
 import { onAuthStateChanged } from 'firebase/auth';
-import { updateDoc, doc } from 'firebase/firestore';
-import { auth, db } from '../../../src/lib/firebase';
+// import { updateDoc, doc } from 'firebase/firestore';
+import { auth } from '../../../src/lib/firebase';
 import AdminProtection from '../../../src/components/AdminProtection';
-import { ADMIN_EMAIL, isAdminEmail } from '../../../src/constants/admin';
+import { isAdminEmail } from '../../../src/constants/admin';
 import { sendUserDisableNotification, sendUserEnableNotification } from '../../../src/lib/emailService';
 import CustomDialog from '../../../src/components/CustomDialog';
 import { useCustomDialog } from '../../../src/hooks/useCustomDialog';
@@ -64,7 +64,7 @@ export default function UsersManagement() {
             createdAt: user.createdAt || (user.metadata as { creationTime?: string })?.creationTime || new Date().toISOString(),
             lastLogin: user.lastLogin || (user.metadata as { lastSignInTime?: string })?.lastSignInTime,
             status: user.status || 'ACTIVE',
-            country: user.location || (user as any).country || getRandomCountry(),
+            country: user.location || (user as { country?: string }).country || getRandomCountry(),
             gender: user.gender || getRandomGender(),
           }));
           setUsers(convertedUsers);
@@ -147,7 +147,7 @@ export default function UsersManagement() {
             createdAt: user.createdAt || (user.metadata as { creationTime?: string })?.creationTime || new Date().toISOString(),
             lastLogin: user.lastLogin || (user.metadata as { lastSignInTime?: string })?.lastSignInTime,
             status: user.status || 'ACTIVE',
-            country: user.location || (user as any).country || getRandomCountry(),
+            country: user.location || (user as { country?: string }).country || getRandomCountry(),
             gender: user.gender || getRandomGender(),
           }));
           setUsers(convertedUsers);
@@ -316,7 +316,7 @@ export default function UsersManagement() {
         console.log("Current user:", currentUser.email);
         
         // Use case-insensitive comparison for email check
-        const isAdmin = isAdminEmail(currentUser.email);
+        const isAdmin = isAdminEmail(currentUser.email || '');
         console.log("Admin email check:", isAdmin);
         
         if (!isAdmin) {

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import React from 'react';
 import Image from 'next/image';
 
 type AdminSidebarProps = {
@@ -9,7 +10,7 @@ type AdminSidebarProps = {
 };
 
 export default function AdminSidebar({ active, className }: AdminSidebarProps) {
-  const item = (href: string, label: string, icon: JSX.Element, key: AdminSidebarProps['active']) => (
+  const item = (href: string, label: string, icon: React.ReactElement, key: AdminSidebarProps['active']) => (
     <Link
       href={href}
       className={`flex items-center px-4 py-3 rounded-md text-white hover:bg-[#29B6F6]/20 ${active === key ? 'bg-[#29B6F6]/20' : ''}`}

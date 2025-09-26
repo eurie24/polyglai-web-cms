@@ -1,23 +1,19 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { 
   collection, 
   getDocs, 
   getDoc,
-  addDoc,
   deleteDoc,
   doc,
-  updateDoc,
-  query, 
-  orderBy,
   writeBatch
 } from 'firebase/firestore';
 import { auth, db } from '../../../src/lib/firebase';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Image from 'next/image';
+// import Image from 'next/image';
 import AdminSidebar from '../../../src/components/AdminSidebar';
 import CustomDialog from '../../../src/components/CustomDialog';
 import { useCustomDialog } from '../../../src/hooks/useCustomDialog';
@@ -37,7 +33,7 @@ type GroupedQuestions = {
   [languageId: string]: Question[];
 };
 
-export default function WordTrainerManagement() {
+function WordTrainerContent() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [groupedQuestions, setGroupedQuestions] = useState<GroupedQuestions>({});
   const [isLoading, setIsLoading] = useState(true);
@@ -393,6 +389,7 @@ export default function WordTrainerManagement() {
   };
 
   // Check for existing questions to prevent duplicates
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const checkForDuplicates = async (questionsToCheck: Array<{
     question: string;
     languageId: string;
@@ -542,6 +539,7 @@ export default function WordTrainerManagement() {
           options: options,
           correctAnswer: correctAnswer,
           languageId: detectedLanguage,
+          level: 'intermediate',
           pointsValue: pointsValue,
           explanation: explanation || undefined
         };
@@ -1483,5 +1481,17 @@ export default function WordTrainerManagement() {
         />
       )}
     </div>
+  );
+}
+
+export default function WordTrainerManagement() {
+  return (
+    <Suspense fallback={
+      <div className="p-6 flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#0277BD]"></div>
+      </div>
+    }>
+      <WordTrainerContent />
+    </Suspense>
   );
 } 

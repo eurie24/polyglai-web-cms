@@ -36,16 +36,16 @@ export interface ProfanityRecord {
   language: string;
   detectedWords: string[];
   wordCount: number;
-  timestamp: any;
+  timestamp: unknown;
   date: string;
-  createdAt: any;
+  createdAt: unknown;
 }
 
 export interface UserProfanityStats {
   totalCount: number;
-  lastDetected: any;
-  dailyStats: any[];
-  languageStats: any[];
+  lastDetected: unknown;
+  dailyStats: unknown[];
+  languageStats: unknown[];
 }
 
 export interface GlobalProfanityStats {
@@ -171,8 +171,8 @@ export class ProfanityCounterService {
       console.log(`ProfanityCounterService: Successfully recorded profanity usage: ${words.length} words detected in ${context}`);
     } catch (error) {
       console.error('ProfanityCounterService: Error recording profanity usage:', error);
-      console.error('ProfanityCounterService: Error details:', error.toString());
-      if (error.toString().includes('permission-denied')) {
+      console.error('ProfanityCounterService: Error details:', (error as Error).toString());
+      if ((error as Error).toString().includes('permission-denied')) {
         console.error('ProfanityCounterService: Permission denied - check Firestore rules');
       }
     }
@@ -287,11 +287,11 @@ export class ProfanityCounterService {
         where('date', '>=', thirtyDaysAgo.toISOString().split('T')[0]),
         orderBy('date', 'desc')
       );
-      const dailySnapshot = await getDocs(dailyQuery);
+      await getDocs(dailyQuery);
 
       // Get language-specific profanity data
-      const languageQuery = query(collection(db, 'admin_stats', 'language_profanity'));
-      const languageSnapshot = await getDocs(languageQuery);
+      // const languageQuery = query(collection(db, 'admin_stats', 'language_profanity'));
+      // await getDocs(languageQuery);
 
       // Get recent profanity records for context analysis
       const recentRecordsQuery = query(
@@ -360,7 +360,7 @@ export class ProfanityCounterService {
   /**
    * Gets daily profanity statistics
    */
-  static async getDailyProfanityStats(days: number = 30): Promise<any[]> {
+  static async getDailyProfanityStats(days: number = 30): Promise<unknown[]> {
     try {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
@@ -382,7 +382,7 @@ export class ProfanityCounterService {
   /**
    * Gets language-specific profanity statistics
    */
-  static async getLanguageProfanityStats(): Promise<any[]> {
+  static async getLanguageProfanityStats(): Promise<unknown[]> {
     try {
       const languageQuery = query(collection(db, 'admin_stats', 'language_profanity'));
       const snapshot = await getDocs(languageQuery);
@@ -507,7 +507,7 @@ export class ProfanityCounterService {
     totalCount: number;
     dailyCount: number;
     languageCount: number;
-    lastDetected: any;
+    lastDetected: unknown;
   }> {
     try {
       // Get user document

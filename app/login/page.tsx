@@ -31,12 +31,12 @@ function LoginContent() {
   useEffect(() => {
     console.log("Setting up auth state listener...");
     
-    const handleAuthStateChange = async (user: any) => {
-      console.log("Auth state changed:", user ? `User logged in: ${user.email}` : "No user");
+    const handleAuthStateChange = async (user: unknown) => {
+      console.log("Auth state changed:", user ? `User logged in: ${(user as { email?: string }).email || 'Unknown'}` : "No user");
       
       if (user) {
         // Check if user is admin - redirect to admin login
-        if (user.email?.toLowerCase() === 'polyglAITool@gmail.com'.toLowerCase()) {
+        if ((user as { email?: string }).email?.toLowerCase() === 'polyglAITool@gmail.com'.toLowerCase()) {
           router.push('/admin/login');
         } else {
           // For regular users, redirect to user dashboard
@@ -161,12 +161,12 @@ function LoginContent() {
           return;
         }
         console.log("User profile found in Firestore, allowing access");
-      } catch (firestoreCheckError: any) {
+      } catch (firestoreCheckError: unknown) {
         console.error('Error checking user profile existence:', firestoreCheckError);
         
         // If it's a permissions error, it likely means the user doesn't exist
-        if (firestoreCheckError.code === 'permission-denied' || 
-            firestoreCheckError.message?.includes('Missing or insufficient permissions')) {
+        if ((firestoreCheckError as { code?: string }).code === 'permission-denied' || 
+            ((firestoreCheckError as { message?: string }).message || '').includes('Missing or insufficient permissions')) {
           console.log("Permission denied - user profile likely doesn't exist, denying access");
           setLoading(false);
           await auth.signOut();

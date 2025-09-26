@@ -821,6 +821,7 @@ export default function Characters() {
   };
 
   // Check for existing characters to prevent duplicates
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const checkForDuplicateCharacters = async (charactersToCheck: Array<{
     value: string;
     level: string;

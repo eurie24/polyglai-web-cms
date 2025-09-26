@@ -3,24 +3,22 @@ import iconv from 'iconv-lite';
 import mammoth from 'mammoth';
 
 // Lazy import to avoid edge/unsupported environments
-let pdfParse: any;
+let pdfParse: (buffer: Buffer, options?: { max?: number }) => Promise<{ text?: string; numpages?: number; numPages?: number }>;
 async function getPdfParser() {
   if (pdfParse) return pdfParse;
   try {
     // Try canonical entry
     const mod = await import('pdf-parse');
-    pdfParse = (mod as any).default || (mod as any);
+    pdfParse = mod as unknown as (buffer: Buffer, options?: { max?: number }) => Promise<{ text?: string; numpages?: number; numPages?: number }> || (mod as { default?: unknown })?.default as unknown as (buffer: Buffer, options?: { max?: number }) => Promise<{ text?: string; numpages?: number; numPages?: number }>;
     return pdfParse;
   } catch (e1) {
-    // eslint-disable-next-line no-console
     console.error('pdf-parse import failed (main). Trying legacy path...', e1);
     try {
       // Fallback to explicit file path
       const mod2 = await import('pdf-parse/lib/pdf-parse.js');
-      pdfParse = (mod2 as any).default || (mod2 as any);
+      pdfParse = mod2 as unknown as (buffer: Buffer, options?: { max?: number }) => Promise<{ text?: string; numpages?: number; numPages?: number }> || (mod2 as { default?: unknown })?.default as unknown as (buffer: Buffer, options?: { max?: number }) => Promise<{ text?: string; numpages?: number; numPages?: number }>;
       return pdfParse;
     } catch (e2) {
-      // eslint-disable-next-line no-console
       console.error('pdf-parse import failed (legacy).', e2);
       throw e2;
     }
@@ -32,7 +30,6 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    // eslint-disable-next-line no-console
     console.log('extract-text API: received request');
     const contentType = req.headers.get('content-type') || '';
     if (!contentType.includes('multipart/form-data')) {
@@ -66,7 +63,7 @@ export async function POST(req: NextRequest) {
     if (filename.endsWith('.docx') || (file.type && (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.type === 'application/docx'))) {
       try {
         const result = await mammoth.extractRawText({ buffer });
-        let text: string = (result?.value || '').trim();
+        const text: string = (result?.value || '').trim();
         if (!text) {
           return NextResponse.json({ error: 'No extractable text in DOCX' }, { status: 422 });
         }
@@ -74,9 +71,8 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: 'DOCX text exceeds 1000 characters' }, { status: 413 });
         }
         return NextResponse.json({ text });
-      } catch (err: any) {
-        // eslint-disable-next-line no-console
-        console.error('DOCX parse failed:', err?.message || err);
+      } catch (err: unknown) {
+        console.error('DOCX parse failed:', err instanceof Error ? err.message : String(err));
         return NextResponse.json({ error: 'Failed to parse DOCX' }, { status: 500 });
       }
     }
@@ -100,8 +96,7 @@ export async function POST(req: NextRequest) {
       try {
         const parse = await getPdfParser();
         // Disable page render to speed up and avoid worker requirements
-        const data = await parse(buffer, { max: 1 }).catch((err: any) => {
-          // eslint-disable-next-line no-console
+        const data = await parse(buffer, { max: 1 }).catch((err: unknown) => {
           console.error('pdf-parse threw:', err);
           throw err;
         });
@@ -117,19 +112,17 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: 'No extractable text in PDF' }, { status: 422 });
         }
         return NextResponse.json({ text });
-      } catch (err: any) {
-        // eslint-disable-next-line no-console
-        console.error('PDF parse failed:', err?.message || err);
-        const msg = typeof err?.message === 'string' ? err.message : 'Failed to parse PDF';
+      } catch (err: unknown) {
+        console.error('PDF parse failed:', err instanceof Error ? err.message : String(err));
+        const msg = err instanceof Error ? err.message : 'Failed to parse PDF';
         return NextResponse.json({ error: msg }, { status: 500 });
       }
     }
 
     return NextResponse.json({ error: 'Unsupported file type. Upload .txt or .pdf' }, { status: 400 });
-  } catch (e: any) {
-    // eslint-disable-next-line no-console
+  } catch (e: unknown) {
     console.error('extract-text API error:', e);
-    const message = typeof e?.message === 'string' ? e.message : 'Failed to extract text';
+    const message = e instanceof Error ? e.message : 'Failed to extract text';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

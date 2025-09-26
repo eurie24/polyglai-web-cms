@@ -138,8 +138,8 @@ export function isFirebaseAuthError(error: unknown): error is FirebaseAuthError 
     typeof error === 'object' &&
     error !== null &&
     'code' in error &&
-    typeof (error as any).code === 'string' &&
-    (error as any).code.startsWith('auth/')
+    typeof (error as { code?: unknown }).code === 'string' &&
+    (error as { code: string }).code.startsWith('auth/')
   );
 }
 

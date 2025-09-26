@@ -65,7 +65,7 @@ function WordTrainerPageContent() {
         if (a) {
           try {
             a.pause();
-            // @ts-ignore - clearing src helps some browsers release
+            // clearing src helps some browsers release
             a.src = '';
           } catch {}
         }

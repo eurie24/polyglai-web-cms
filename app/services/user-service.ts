@@ -404,7 +404,7 @@ export class UserService {
               existingDoc = d;
             }
           });
-          console.log(`saveAssessmentScore: Highest existing score is ${maxScore} from doc ${existingDoc?.id}`);
+          console.log(`saveAssessmentScore: Highest existing score is ${maxScore} from doc ${existingDoc ? (existingDoc as { id: string }).id : null}`);
         } else {
           console.log('saveAssessmentScore: No existing documents found');
         }
@@ -510,11 +510,11 @@ export class UserService {
                 } else {
                   // For intermediate, distribute phonemes across words
                   const words = scoreData.transcript.split(' ');
-                  const phonemesPerWord = Math.ceil(scoreData.phonemeAnalysis.length / words.length);
+                  const phonemesPerWord = Math.ceil((scoreData.phonemeAnalysis || []).length / words.length);
                   return words.map((word, index) => {
                     const startIdx = index * phonemesPerWord;
-                    const endIdx = Math.min(startIdx + phonemesPerWord, scoreData.phonemeAnalysis.length);
-                    const wordPhonemes = scoreData.phonemeAnalysis.slice(startIdx, endIdx);
+                    const endIdx = Math.min(startIdx + phonemesPerWord, (scoreData.phonemeAnalysis || []).length);
+                    const wordPhonemes = (scoreData.phonemeAnalysis || []).slice(startIdx, endIdx);
                     return {
                       word: word.toLowerCase(),
                       phonemes: wordPhonemes.map(p => ({
@@ -539,7 +539,6 @@ export class UserService {
         },
         apiProvider: "Microsoft Speech Azure AI", // Match Flutter app exactly
         language: scoreData.language.toLowerCase(),
-        level: scoreData.level.toLowerCase(),
         originalResponse: mockAzureResponse,
         result: {
           fluency: fluencyScore,
@@ -564,11 +563,11 @@ export class UserService {
               } else {
                 // For intermediate, distribute phonemes across words
                 const words = scoreData.transcript.split(' ');
-                const phonemesPerWord = Math.ceil(scoreData.phonemeAnalysis.length / words.length);
+                const phonemesPerWord = Math.ceil((scoreData.phonemeAnalysis || []).length / words.length);
                 return words.map((word, index) => {
                   const startIdx = index * phonemesPerWord;
-                  const endIdx = Math.min(startIdx + phonemesPerWord, scoreData.phonemeAnalysis.length);
-                  const wordPhonemes = scoreData.phonemeAnalysis.slice(startIdx, endIdx);
+                  const endIdx = Math.min(startIdx + phonemesPerWord, (scoreData.phonemeAnalysis || []).length);
+                  const wordPhonemes = (scoreData.phonemeAnalysis || []).slice(startIdx, endIdx);
                   return {
                     word: word.toLowerCase(),
                     phonemes: wordPhonemes.map(p => ({
@@ -616,10 +615,10 @@ export class UserService {
       console.log('saveAssessmentScore: Final payload structure:', {
         hasApiResponse: !!payload.apiResponse,
         hasResult: !!(payload.result),
-        hasWords: !!(payload.result as any)?.words,
-        hasPhonemes: !!((payload.result as any)?.words?.[0]?.phonemes?.length),
+        hasWords: !!(payload.result as { words?: unknown[] })?.words,
+        hasPhonemes: !!((payload.result as { words?: Array<{ phonemes?: unknown[] }> })?.words?.[0]?.phonemes?.length),
         hasRefText: !!payload.refText,
-        phonenesCount: ((payload.result as any)?.words?.[0]?.phonemes?.length || 0),
+        phonenesCount: (((payload.result as { words?: Array<{ phonemes?: unknown[] }> })?.words?.[0]?.phonemes?.length) || 0),
         level: scoreData.level,
         hasPhonemeAnalysis: !!(scoreData.phonemeAnalysis && scoreData.phonemeAnalysis.length > 0),
         phonemeAnalysisCount: scoreData.phonemeAnalysis?.length || 0
@@ -628,13 +627,14 @@ export class UserService {
       console.log('saveAssessmentScore: apiResponse structure:', JSON.stringify(payload.apiResponse, null, 2));
 
       if (existingDoc) {
-        const current = existingDoc.data();
+        const current = (existingDoc as { data: () => { score?: unknown } }).data();
         const currentBest = typeof current.score === 'number' ? current.score : 0;
         const newScore = payload.score as number;
         console.log(`saveAssessmentScore: Comparing scores - current: ${currentBest}, new: ${newScore}`);
         if (newScore > currentBest) {
           console.log('saveAssessmentScore: New score is higher, updating existing document');
-          await updateDoc(existingDoc.ref, payload);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await updateDoc((existingDoc as any).ref, payload as any);
           // Award new-high-score badge
           try {
             await UserService.awardBadge(userId, {

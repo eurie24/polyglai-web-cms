@@ -60,7 +60,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, id: 'entry', created: true });
     }
   } catch (e) {
-    // eslint-disable-next-line no-console
     console.error('Failed to save feedback', e);
     return NextResponse.json({ success: false, error: 'Internal error' }, { status: 500 });
   }
@@ -88,7 +87,6 @@ export async function GET(req: NextRequest) {
     // Fallback by email: find user by email if needed (optional; keeping simple -> null)
     return NextResponse.json({ success: true, item: null });
   } catch (e) {
-    // eslint-disable-next-line no-console
     console.error('Failed to fetch feedback', e);
     return NextResponse.json({ success: false, error: 'Internal error' }, { status: 500 });
   }

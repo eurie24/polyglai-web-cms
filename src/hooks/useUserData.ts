@@ -48,7 +48,7 @@ async function getTotalAssessmentsForLevel(language: string, level: string): Pro
     
     if (originalDoc.exists()) {
       const data = originalDoc.data();
-      const characters = data?.[level.toLowerCase()] as any[] | undefined;
+      const characters = data?.[level.toLowerCase()] as unknown[] | undefined;
       if (characters && characters.length > 0) {
         console.log(`Found ${characters.length} characters for ${language} ${level} (original format)`);
         return characters.length;
@@ -162,7 +162,7 @@ export function useUserData(userId: string) {
                 );
                 let completedAssessments = 0;
                 assessmentsSnap.forEach(d => {
-                  const score = (d.data() as any).score ?? 0;
+                  const score = (d.data() as { score?: unknown }).score ?? 0;
                   if (typeof score === 'number' ? score > 0 : parseInt(String(score)) > 0) {
                     completedAssessments++;
                   }

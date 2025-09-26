@@ -22,7 +22,6 @@ export async function GET() {
     });
     return NextResponse.json({ success: true, items });
   } catch (e) {
-    // eslint-disable-next-line no-console
     console.error('Failed to list feedback', e);
     return NextResponse.json({ success: false, error: 'Internal error' }, { status: 500 });
   }

@@ -52,7 +52,7 @@ interface SentenceMetrics {
 }
 
 const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
-  targetText,
+  targetText: _targetText, // eslint-disable-line @typescript-eslint/no-unused-vars
   level,
   language,
   overallScore,
@@ -77,12 +77,12 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
     const phonemes: PhonemeData[] = [];
     
     // Prefer Azure originalResponse words when available for accuracy
-    const anyResponse = apiResponse as unknown as { originalResponse?: any };
-    const originalWords: any[] | undefined = anyResponse?.originalResponse?.NBest?.[0]?.Words;
+    const anyResponse = apiResponse as unknown as { originalResponse?: { NBest?: { Words?: Array<{ Word?: string; AccuracyScore?: number }> }[] } } | null;
+    const originalWords: Array<{ Word?: string; AccuracyScore?: number }> | undefined = anyResponse?.originalResponse?.NBest?.[0]?.Words;
 
     if (level === 'intermediate' && Array.isArray(originalWords) && originalWords.length > 0) {
       // Build per-word pronunciation entries based on Azure word scores
-      originalWords.forEach((w: any) => {
+      originalWords.forEach((w: { Word?: string; AccuracyScore?: number }) => {
         const wordText: string = typeof w?.Word === 'string' ? w.Word : '';
         const score: number = normalizeScore(w?.AccuracyScore);
         if (wordText) {
@@ -257,6 +257,7 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
     return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const getAdvancedPronunciationBreakdown = (): Array<{ label: string; score: number }> => {
     if (!hasResult || !result) {
       return [
@@ -460,7 +461,7 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
                     <div className="divide-y">
                       {result!.words!.map((w, idx) => {
                         const wordText = w.word ?? '';
-                        const score = Math.round(w.scores?.overall ?? (w as any).score ?? 0);
+                        const score = Math.round(w.scores?.overall ?? (w as { score?: number }).score ?? 0);
                         const phs = Array.isArray(w.phonemes) ? w.phonemes : [];
                         return (
                           <div key={idx}>
@@ -474,7 +475,7 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
                                 <div className="flex flex-wrap gap-2">
                                   {phs.map((p, i) => {
                                     const phone = p.phone ?? p.phoneme ?? '';
-                                    const pScore = Math.round((p as any).pronunciation ?? (p as any).score ?? 0);
+                                    const pScore = Math.round((p as { pronunciation?: number }).pronunciation ?? (p as { score?: number }).score ?? 0);
                                     return (
                                       <span key={i} className={`text-[11px] px-2 py-0.5 rounded border ${pScore >= 80 ? 'bg-green-50 text-green-700 border-green-400' : pScore >= 60 ? 'bg-orange-50 text-orange-700 border-orange-400' : 'bg-red-50 text-red-700 border-red-400'}`}>
                                         {phone} ({pScore})

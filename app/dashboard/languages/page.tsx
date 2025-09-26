@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
-import Link from 'next/link';
+// import Image from 'next/image';
+// import Link from 'next/link';
 import AdminSidebar from '../../../src/components/AdminSidebar';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, getDocs, getDoc, addDoc, deleteDoc, doc, query, orderBy } from 'firebase/firestore';

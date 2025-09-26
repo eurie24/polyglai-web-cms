@@ -10,7 +10,7 @@ import { auth } from '../../src/lib/firebase';
 import AdminProtection from '../../src/components/AdminProtection';
 import { useUsersData } from '../../src/hooks/useUsersData';
 import { isAdminEmail } from '../../src/constants/admin';
-import { collection, query, getDocs, where, orderBy, limit, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, getDocs, where, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../src/lib/firebase';
 import CustomDialog from '../../src/components/CustomDialog';
 import { useCustomDialog } from '../../src/hooks/useCustomDialog';
@@ -26,7 +26,7 @@ interface ProfanityRecord {
   context: string;
   language: string;
   detectedWords: string[];
-  timestamp: any;
+  timestamp: number | { seconds: number; nanoseconds?: number };
   wordCount: number;
 }
 
@@ -35,7 +35,7 @@ interface UserWithProfanity {
   name: string;
   email: string;
   profanityCount: number;
-  lastProfanityDetected: any;
+  lastProfanityDetected: string | { seconds: number; nanoseconds?: number } | null;
   isDisabled: boolean;
   recentProfanity: ProfanityRecord[];
 }
@@ -84,11 +84,7 @@ const formatLanguageName = (raw: string): string => {
     'chinese (mandarin, simplified)': 'Mandarin',
     'chinese (mandarin, traditional)': 'Mandarin',
     'chinese (cantonese, traditional)': 'Mandarin',
-    'japanese': 'Nihongo',
-    'korean': 'Hangugeo',
     // exact display names we may already receive
-    'english': 'English',
-    'mandarin': 'Mandarin',
     'español': 'Español',
     'nihongo': 'Nihongo',
     'hangugeo': 'Hangugeo',
@@ -134,7 +130,7 @@ const doesGenderMatch = (userGender: string | undefined, filterGender: string): 
   // Cache of userId -> progress object loaded via /api/user-progress/[userId]
   const [userProgressMap, setUserProgressMap] = useState<Record<string, Record<string, unknown>>>({});
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
-  const [expandedProgress, setExpandedProgress] = useState<Record<string, any> | null>(null);
+  const [expandedProgress, setExpandedProgress] = useState<Record<string, unknown> | null>(null);
   const [loadingExpanded, setLoadingExpanded] = useState<boolean>(false);
 
   // Notifications state
@@ -152,8 +148,8 @@ const doesGenderMatch = (userGender: string | undefined, filterGender: string): 
         // Check if user is admin
         console.log("Current user:", currentUser.email);
         
-        // Use case-insensitive comparison for email check
-        const isAdmin = isAdminEmail(currentUser.email);
+      // Use case-insensitive comparison for email check
+      const isAdmin = isAdminEmail(currentUser.email || '');
         console.log("Admin email check:", isAdmin);
         
         if (!isAdmin) {
@@ -381,7 +377,7 @@ const doesGenderMatch = (userGender: string | undefined, filterGender: string): 
       console.log(`Total users found: ${usersSnapshot.docs.length}`);
       
       const usersWithProfanity: UserWithProfanity[] = [];
-      const allUsers: any[] = []; // For debugging
+      const allUsers: Record<string, unknown>[] = []; // For debugging
       
       // Process each user
       for (const userDoc of usersSnapshot.docs) {
@@ -438,8 +434,8 @@ const doesGenderMatch = (userGender: string | undefined, filterGender: string): 
           // Sort by timestamp in memory and take the 5 most recent
           const recentProfanity = allProfanity
             .sort((a, b) => {
-              const aTime = a.timestamp?.toDate?.() || new Date(0);
-              const bTime = b.timestamp?.toDate?.() || new Date(0);
+              const aTime = typeof a.timestamp === 'number' ? new Date(a.timestamp * 1000) : (a.timestamp && typeof a.timestamp === 'object' && 'seconds' in a.timestamp ? new Date(a.timestamp.seconds * 1000) : new Date(0));
+              const bTime = typeof b.timestamp === 'number' ? new Date(b.timestamp * 1000) : (b.timestamp && typeof b.timestamp === 'object' && 'seconds' in b.timestamp ? new Date(b.timestamp.seconds * 1000) : new Date(0));
               return bTime.getTime() - aTime.getTime();
             })
             .slice(0, 5);
@@ -503,11 +499,11 @@ const doesGenderMatch = (userGender: string | undefined, filterGender: string): 
     }
   };
 
-  const formatTimestamp = (timestamp: any) => {
+  const formatTimestamp = (timestamp: unknown) => {
     if (!timestamp) return 'Unknown';
     try {
       // Handle both Firestore timestamp objects and regular dates
-      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+      const date = (timestamp as { toDate?: () => Date }).toDate ? (timestamp as { toDate: () => Date }).toDate() : new Date(timestamp as string | number);
       return date.toLocaleString();
     } catch {
       return 'Unknown';
@@ -1268,7 +1264,7 @@ const doesGenderMatch = (userGender: string | undefined, filterGender: string): 
                                     setExpandedUserId(user.id);
                                     const res = await fetch(`/api/user-progress/${user.id}/all`, { headers: { 'Cache-Control': 'no-cache' } });
                                     const json = await res.json();
-                                    if (json?.success) setExpandedProgress(json.progress as Record<string, any>);
+                                    if (json?.success) setExpandedProgress(json.progress as Record<string, unknown>);
                                   } finally {
                                     setLoadingExpanded(false);
                                   }
@@ -1330,9 +1326,9 @@ const doesGenderMatch = (userGender: string | undefined, filterGender: string): 
                             oneDayAgo.setDate(oneDayAgo.getDate() - 1);
                             if (!u.lastProfanityDetected) return false;
                             try {
-                              const lastDetected = u.lastProfanityDetected.toDate ? 
-                                u.lastProfanityDetected.toDate() : 
-                                new Date(u.lastProfanityDetected);
+                              const lastDetected = (u.lastProfanityDetected as unknown as { toDate?: () => Date }).toDate ? 
+                                (u.lastProfanityDetected as unknown as { toDate: () => Date }).toDate() : 
+                                new Date(u.lastProfanityDetected as string | number);
                               return lastDetected > oneDayAgo;
                             } catch {
                               return false;
@@ -1341,7 +1337,7 @@ const doesGenderMatch = (userGender: string | undefined, filterGender: string): 
                         ].map(({ key, label, count }) => (
                           <button
                             key={key}
-                            onClick={() => setProfanityFilter(key as any)}
+                            onClick={() => setProfanityFilter(key as 'all' | 'high' | 'recent')}
                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                               profanityFilter === key
                                 ? 'bg-[#29B6F6] text-white'
@@ -1375,9 +1371,9 @@ const doesGenderMatch = (userGender: string | undefined, filterGender: string): 
                         oneDayAgo.setDate(oneDayAgo.getDate() - 1);
                         if (!user.lastProfanityDetected) return false;
                         try {
-                          const lastDetected = user.lastProfanityDetected.toDate ? 
-                            user.lastProfanityDetected.toDate() : 
-                            new Date(user.lastProfanityDetected);
+                          const lastDetected = (user.lastProfanityDetected as unknown as { toDate?: () => Date }).toDate ? 
+                            (user.lastProfanityDetected as unknown as { toDate: () => Date }).toDate() : 
+                            new Date(user.lastProfanityDetected as string | number);
                           return lastDetected > oneDayAgo;
                         } catch {
                           return false;

@@ -4,10 +4,10 @@ import { initAdmin } from '@/firebase/adminInit';
 
 export async function GET(
   request: Request,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
-    const { userId } = params;
+    const { userId } = await params;
     
     if (!userId) {
       return NextResponse.json(
@@ -76,7 +76,6 @@ export async function GET(
     const itemCounts: Record<string, number> = { beginner: 10, intermediate: 10, advanced: 10 };
     for (const level of levels) {
       try {
-        // @ts-ignore admin SDK count aggregation
         const countSnap = await adminDb
           .collection('languages')
           .doc(preferredLanguage)
@@ -86,7 +85,7 @@ export async function GET(
           .count()
           .get();
         // Some SDKs return { count }, some nested; handle both
-        const c = (countSnap as unknown as { count?: number }).count ?? (countSnap as any)?._data?.count ?? 0;
+        const c = (countSnap as unknown as { count?: number }).count ?? (countSnap as { _data?: { count?: number } })?._data?.count ?? 0;
         itemCounts[level] = typeof c === 'number' && c > 0 ? c : itemCounts[level];
       } catch (e) {
         console.warn(`Error counting items for ${preferredLanguage}/${level}:`, e);
