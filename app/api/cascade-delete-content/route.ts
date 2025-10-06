@@ -78,9 +78,15 @@ export async function POST(request: Request) {
                     assessmentData.wordId === contentId ||
                     assessmentData.wordValue === contentValue ||
                     // Some intermediate structures may embed as details.sentence.target
-                    (assessmentData.details && typeof assessmentData.details === 'object' &&
-                      (assessmentData.details as Record<string, any>).sentence &&
-                      (assessmentData.details as Record<string, any>).sentence.target === contentValue)
+                    (
+                      assessmentData.details &&
+                      typeof assessmentData.details === 'object' &&
+                      ((): boolean => {
+                        type AssessmentDetails = { sentence?: { target?: string } };
+                        const details = assessmentData.details as AssessmentDetails;
+                        return details.sentence?.target === contentValue;
+                      })()
+                    )
                   ) {
                     shouldDelete = true;
                   }

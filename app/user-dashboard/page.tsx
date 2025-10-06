@@ -3057,14 +3057,16 @@ function UserDashboardContent() {
                       { key: 'weekly_warrior', name: 'Weekly Warrior', desc: 'Study at least once every day for 7 days (Level Up)', img: '/badges/weekly_warrior.png' },
                       { key: 'legend_of_polyglai', name: 'Legend of PolyglAI', desc: 'Unlock all achievements in the app', img: '/badges/legend_of_polyglai.png' },
                     ];
-                    const locked = allChallenges.filter((c: any) => !(userBadges as Record<string, unknown>)?.[c.key]);
+                    type ChallengeItem = { key: string; name: string; desc: string; img: string };
+                    const locked = (allChallenges as ChallengeItem[])
+                      .filter((c: ChallengeItem) => !(userBadges as Record<string, unknown>)?.[c.key]);
                     const toShow = locked.slice(0, 3);
                     if (toShow.length === 0) {
                       return (
                         <div className="text-sm text-gray-600">All challenges unlocked! Great job.</div>
                       );
                     }
-                    return toShow.map((c: any) => (
+                    return toShow.map((c: ChallengeItem) => (
                       <div key={c.key} className="bg-white rounded-xl p-4 shadow-sm border-2 border-[#2AC3F4]">
                         <div className="flex items-center">
                           <div className="w-12 h-12 rounded-lg shadow-sm overflow-hidden mr-3 bg-transparent">
