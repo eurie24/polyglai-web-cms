@@ -60,7 +60,7 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
   isHighScore,
   onClose
 }) => {
-  const [openMetric, setOpenMetric] = React.useState<null | 'pronunciation' | 'fluency' | 'completeness' | 'prosody'>(null);
+  const [openMetric, setOpenMetric] = React.useState<null | 'pronunciation' | 'accuracy' | 'fluency' | 'completeness' | 'prosody'>(null);
   // Ensure scores are within [0, 100]
   const normalizeScore = (score: number | undefined): number => {
     const s = Math.round(typeof score === 'number' ? score : 0);
@@ -168,18 +168,19 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
     return 'Keep practicing';
   };
 
-  const getMetricInfo = (metric: 'pronunciation' | 'fluency' | 'completeness' | 'prosody' | 'vocabulary' | 'grammar' | 'topic'): string => {
+  const getMetricInfo = (metric: 'pronunciation' | 'accuracy' | 'fluency' | 'completeness' | 'prosody' | 'vocabulary' | 'grammar' | 'topic'): string => {
     switch (metric) {
+      case 'accuracy':
       case 'pronunciation':
-        return 'Pronunciation accuracy of the speech. Accuracy indicates how closely the phonemes match a native speaker\'s pronunciation. Word and full text accuracy scores are aggregated from phoneme-level accuracy score.';
+        return "Accuracy indicates how closely the phonemes match a native speaker's pronunciation. Word and full text accuracy scores are aggregated from phoneme-level accuracy score.";
       case 'fluency':
-        return 'Fluency of the given speech. Fluency indicates how closely the speech matches a native speaker\'s use of silent breaks between words.';
+        return "Fluency indicates how closely the speech matches a native speaker's use of silent breaks between words.";
       case 'completeness':
         return 'Completeness of the speech, calculated by the ratio of pronounced words to the input reference text.';
       case 'prosody':
-        return 'Prosody of the given speech. Prosody indicates the nature of the given speech, including stress, intonation, speaking speed and rhythm.';
+        return 'Prosody indicates how nature of the given speech, including stress, intonation, speaking speed and rhythm.';
       case 'vocabulary':
-        return 'Proficiency in lexical usage, which is evaluated by speaker\'s effective usage of words, on how appropriate is the word used with its context to express an idea.';
+        return 'Prosody of the given speech. Prosody indicates how nature of the given speech, including stress, intonation, speaking speed and rhythm.';
       case 'grammar':
         return 'Proficiency of the correctness in using grammar. Grammatical errors are jointly evaluated by incorporating the level of proper grammar usage with the lexical.';
       case 'topic':
@@ -338,7 +339,7 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
 
                 {/* Pronunciation score (overall only) */}
                 <div className="p-4 border rounded-lg">
-                  <div className="text-center text-lg font-semibold text-gray-900">Pronunciation score</div>
+                <div className="text-center text-lg font-semibold text-gray-900">Accuracy score</div>
                   <div className="mt-4 flex items-center justify-center">
                     <div className="relative w-20 h-20">
                       <svg className="w-20 h-20 -rotate-90" viewBox="0 0 24 24">
@@ -370,10 +371,10 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
 
                 {/* Detailed analysis blocks */}
                 <div className="border rounded-lg overflow-hidden">
-                  <div className="px-4 py-2 font-semibold bg-blue-50 border-b">Pronunciation Analysis</div>
+                  <div className="px-4 py-2 font-semibold bg-blue-50 border-b">Accuracy Analysis</div>
                   <div className="divide-y">
                     <div className="flex items-center justify-between px-4 py-3">
-                      <div className="text-sm text-gray-700">Pronunciation</div>
+                      <div className="text-sm text-gray-700">Accuracy</div>
                       <div className="flex items-center space-x-2">
                         {(() => { const v = Math.round(result?.pronunciation ?? overallScore); return (
                           <>
@@ -604,7 +605,7 @@ const AssessmentFeedback: React.FC<AssessmentFeedbackProps> = ({
             {/* Pronunciation Analysis */}
             {phonemes.length > 0 && (
               <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center">Pronunciation Analysis</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center">Accuracy Analysis</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>

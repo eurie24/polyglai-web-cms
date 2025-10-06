@@ -2965,7 +2965,7 @@ function UserDashboardContent() {
                   <h2 className="text-2xl font-bold text-gray-900">Achievements</h2>
                   {!badgeLoading && (
                     <p className="text-sm text-gray-600 mt-1">
-                      {userBadges ? Object.values(userBadges).filter(Boolean).length : 0} out of 9 badges unlocked
+                      {userBadges ? Object.values(userBadges).filter(Boolean).length : 0} out of 15 badges unlocked
                     </p>
                   )}
                 </div>
@@ -3049,16 +3049,22 @@ function UserDashboardContent() {
                       { key: 'fluent_flyer', name: 'Fluent Flyer', desc: 'Pass 20 pronunciation assessments in one language', img: '/badges/fluent_flyer.png' },
                       { key: 'polyglot_in_progress', name: 'Polyglot in Progress', desc: 'Complete lessons in 3 different languages', img: '/badges/polyglot_in_progress.png' },
                       { key: 'crown_of_fluency', name: 'Crown of Fluency', desc: 'Score 90+ in an assessment 5 times', img: '/badges/crown_of_fluency.png' },
+                      { key: 'accuracy_hunter', name: 'Accuracy Hunter', desc: 'Score 100% in Word Trainer', img: '/badges/accuracy_hunter.png' },
+                      { key: 'consistency_keeper', name: 'Consistency Keeper', desc: 'Level Up for 15 minutes a day, 5 days in a row', img: '/badges/consistency_keeper.png' },
+                      { key: 'first_steps_scholar', name: 'First Steps Scholar', desc: 'Complete 3 Word Trainer sessions', img: '/badges/first_steps_scholar.png' },
+                      { key: 'globe_trotter', name: 'Globe Trotter', desc: 'Translate a sentence in 5 different languages', img: '/badges/globe_trotter.png' },
+                      { key: 'growth_seeker', name: 'Growth Seeker', desc: 'Improve your pronunciation assessment score by 10% compared to your first attempt', img: '/badges/growth_seeker.png' },
+                      { key: 'weekly_warrior', name: 'Weekly Warrior', desc: 'Study at least once every day for 7 days (Level Up)', img: '/badges/weekly_warrior.png' },
                       { key: 'legend_of_polyglai', name: 'Legend of PolyglAI', desc: 'Unlock all achievements in the app', img: '/badges/legend_of_polyglai.png' },
                     ];
-                    const locked = allChallenges.filter(c => !(userBadges as Record<string, unknown>)?.[c.key]);
+                    const locked = allChallenges.filter((c: any) => !(userBadges as Record<string, unknown>)?.[c.key]);
                     const toShow = locked.slice(0, 3);
                     if (toShow.length === 0) {
                       return (
                         <div className="text-sm text-gray-600">All challenges unlocked! Great job.</div>
                       );
                     }
-                    return toShow.map((c) => (
+                    return toShow.map((c: any) => (
                       <div key={c.key} className="bg-white rounded-xl p-4 shadow-sm border-2 border-[#2AC3F4]">
                         <div className="flex items-center">
                           <div className="w-12 h-12 rounded-lg shadow-sm overflow-hidden mr-3 bg-transparent">

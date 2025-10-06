@@ -69,10 +69,19 @@ export async function POST(request: Request) {
                 
                 if (contentType === 'character') {
                   // For characters, check if the assessment references the deleted character
-                  if (assessmentData.characterId === contentId || 
-                      assessmentData.characterValue === contentValue ||
-                      assessmentData.wordId === contentId ||
-                      assessmentData.wordValue === contentValue) {
+                  if (
+                    // Mobile app (Flutter) uses 'character' to store the exact target text
+                    assessmentData.character === contentValue ||
+                    // Possible alternate fields found in historical data
+                    assessmentData.characterId === contentId ||
+                    assessmentData.characterValue === contentValue ||
+                    assessmentData.wordId === contentId ||
+                    assessmentData.wordValue === contentValue ||
+                    // Some intermediate structures may embed as details.sentence.target
+                    (assessmentData.details && typeof assessmentData.details === 'object' &&
+                      (assessmentData.details as Record<string, any>).sentence &&
+                      (assessmentData.details as Record<string, any>).sentence.target === contentValue)
+                  ) {
                     shouldDelete = true;
                   }
                 } else if (contentType === 'word') {

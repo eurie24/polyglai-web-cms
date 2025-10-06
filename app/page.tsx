@@ -361,7 +361,7 @@ export default function Home() {
                     </svg>
                   </div>
                   <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                    Pronunciation Assessment
+                    Accuracy Assessment
                   </h3>
                   <p className="text-gray-600">
                     Advanced AI analyzes your pronunciation and provides detailed feedback to help you improve.

@@ -65,6 +65,32 @@ const azureLocaleMap: Record<string, string> = {
   korean: 'ko-KR'
 };
 
+// Locale options per language (align with mobile app)
+const localeOptions: Record<string, Array<{ code: string; label: string }>> = {
+  english: [
+    { code: 'en-US', label: 'English (United States)' },
+    { code: 'en-GB', label: 'English (United Kingdom)' },
+    { code: 'en-AU', label: 'English (Australia)' },
+    { code: 'en-CA', label: 'English (Canada)' },
+    { code: 'en-IN', label: 'English (India)' }
+  ],
+  mandarin: [
+    { code: 'zh-CN', label: 'Chinese (Mainland) – zh-CN' },
+    { code: 'zh-HK', label: 'Chinese (Hong Kong) – zh-HK' },
+    { code: 'zh-TW', label: 'Chinese (Taiwan) – zh-TW' }
+  ],
+  japanese: [
+    { code: 'ja-JP', label: 'Japanese (Japan) – ja-JP' }
+  ],
+  korean: [
+    { code: 'ko-KR', label: 'Korean (South Korea) – ko-KR' }
+  ],
+  spanish: [
+    { code: 'es-ES', label: 'Spanish (Spain) – es-ES' },
+    { code: 'es-MX', label: 'Spanish (Mexico) – es-MX' }
+  ],
+};
+
 const flagMap: Record<string, string> = {
   english: '/flags/Usa.svg',
   mandarin: '/flags/China.svg',
@@ -707,6 +733,12 @@ function EvalPageContent() {
   const languageCode = mapLanguageToFirestoreCode(language);
   const [level] = useState<Level>((params.get('level') as Level) || 'beginner');
   const [targetText, setTargetText] = useState<string>(params.get('text') || '');
+  const [locale, setLocale] = useState<string>(() => {
+    const code = mapLanguageToFirestoreCode(language);
+    const defLocale = azureLocaleMap[code] || 'en-US';
+    const qp = params.get('locale');
+    return qp && qp.trim().length > 0 ? qp : defLocale;
+  });
   const [isRecording, setIsRecording] = useState(false);
   const [status, setStatus] = useState('');
   const [transcript, setTranscript] = useState('');
@@ -822,13 +854,14 @@ function EvalPageContent() {
       'korean': 'ko-KR'
     };
     
-    const locale = languageMap[languageCode] || 'en-US';
+    const defaultLocale = languageMap[languageCode] || 'en-US';
+    const ttsLocale = (locale && locale.trim().length > 0) ? locale : defaultLocale;
     
     try {
       // Try Azure TTS first
       if (azureTTSService.isConfigured()) {
-        console.log(`Using Azure TTS for "${textToSpeak}" in ${locale}`);
-        await azureTTSService.speak(textToSpeak, locale);
+        console.log(`Using Azure TTS for "${textToSpeak}" in ${ttsLocale}`);
+        await azureTTSService.speak(textToSpeak, ttsLocale);
       } else {
         // Fallback to browser TTS if Azure is not configured
         console.log(`Azure TTS not configured, falling back to browser TTS for "${textToSpeak}"`);
@@ -838,7 +871,7 @@ function EvalPageContent() {
         
         if (window.speechSynthesis) {
           const utterance = new SpeechSynthesisUtterance(textToSpeak);
-          utterance.lang = locale;
+          utterance.lang = ttsLocale;
           utterance.rate = 0.8; // Slightly slower for clarity
           utterance.pitch = 1.0;
           utterance.volume = 1.0;
@@ -854,7 +887,7 @@ function EvalPageContent() {
       
       if (window.speechSynthesis) {
         const utterance = new SpeechSynthesisUtterance(textToSpeak);
-        utterance.lang = locale;
+        utterance.lang = ttsLocale;
         utterance.rate = 0.8;
         utterance.pitch = 1.0;
         utterance.volume = 1.0;
@@ -992,9 +1025,9 @@ function EvalPageContent() {
 
   useEffect(() => {
     // keep url in sync (lightweight)
-    const search = new URLSearchParams({ language: languageCode, level, text: targetText });
+    const search = new URLSearchParams({ language: languageCode, level, text: targetText, locale });
     window.history.replaceState({}, '', `/eval?${search.toString()}`);
-  }, [languageCode, level, targetText]);
+  }, [languageCode, level, targetText, locale]);
 
   // Load assessments when user/language/level changes (only once per combination)
   useEffect(() => {
@@ -1098,7 +1131,7 @@ function EvalPageContent() {
     setRecordedAudio(null);
     
     try {
-      const locale = azureLocaleMap[languageCode] || 'en-US';
+      const effectiveLocale = (locale && locale.trim().length > 0) ? locale : (azureLocaleMap[languageCode] || 'en-US');
       setIsRecording(true);
       
       // record start sound effect
@@ -1182,7 +1215,7 @@ function EvalPageContent() {
       
       // Start speech recognition
       const stop = await azureSpeechService.startSpeechRecognition(
-        locale,
+        effectiveLocale,
         async (text, azureResponse) => {
           setTranscript(text);
           setIsRecording(false);
@@ -1439,6 +1472,19 @@ function EvalPageContent() {
 
         {/* Target text */}
         <div className="text-center mb-12">
+          {/* Locale Selector */}
+          <div className="max-w-md mx-auto mb-6">
+            <label className="block text-left text-sm font-semibold text-gray-700 mb-2">Choose Locale</label>
+            <select
+              value={locale}
+              onChange={(e) => setLocale(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {(localeOptions[languageCode] || [{ code: azureLocaleMap[languageCode] || 'en-US', label: azureLocaleMap[languageCode] || 'en-US' }]).map(opt => (
+                <option key={opt.code} value={opt.code}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
           <div className="relative inline-block">
             <div className="text-4xl md:text-6xl font-extrabold text-gray-900 break-words">{targetText || '—'}</div>
             {currentUser && targetText && isTextAssessed(targetText) && (

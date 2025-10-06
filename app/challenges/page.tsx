@@ -175,6 +175,54 @@ export default function ChallengesPage() {
           tips: ['Focus on accuracy and fluency', 'Practice challenging words']
         },
         {
+          id: 'accuracy_hunter',
+          name: 'Accuracy Hunter',
+          description: 'Score 100% in Word Trainer',
+          assetUrl: '/badges/accuracy_hunter.png',
+          requirements: ['Score 100% in Word Trainer'],
+          tips: ['Focus on accuracy over speed', 'Take your time with each question']
+        },
+        {
+          id: 'consistency_keeper',
+          name: 'Consistency Keeper',
+          description: 'Level Up for 15 minutes a day, 5 days in a row',
+          assetUrl: '/badges/consistency_keeper.png',
+          requirements: ['Level Up for 15 minutes a day, 5 days in a row'],
+          tips: ['Set daily reminders', 'Find a consistent time to practice']
+        },
+        {
+          id: 'first_steps_scholar',
+          name: 'First Steps Scholar',
+          description: 'Complete 3 Word Trainer sessions',
+          assetUrl: '/badges/first_steps_scholar.png',
+          requirements: ['Complete 3 Word Trainer sessions'],
+          tips: ['Start with shorter sessions', 'Build up your vocabulary gradually']
+        },
+        {
+          id: 'globe_trotter',
+          name: 'Globe Trotter',
+          description: 'Translate a sentence in 5 different languages',
+          assetUrl: '/badges/globe_trotter.png',
+          requirements: ['Translate a sentence in 5 different languages'],
+          tips: ['Explore different language families', 'Practice with various sentence structures']
+        },
+        {
+          id: 'growth_seeker',
+          name: 'Growth Seeker',
+          description: 'Improve your pronunciation assessment score by 10% compared to your first attempt',
+          assetUrl: '/badges/growth_seeker.png',
+          requirements: ['Improve pronunciation score by 10% from first attempt'],
+          tips: ['Practice pronunciation exercises regularly', 'Focus on problem areas']
+        },
+        {
+          id: 'weekly_warrior',
+          name: 'Weekly Warrior',
+          description: 'Study at least once every day for 7 days (Level Up)',
+          assetUrl: '/badges/weekly_warrior.png',
+          requirements: ['Study at least once every day for 7 days'],
+          tips: ['Use Level Up feature daily', 'Set achievable daily goals']
+        },
+        {
           id: 'legend_of_polyglai',
           name: 'Legend of PolyglAI',
           description: 'Unlock all achievements in the app',
