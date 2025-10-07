@@ -541,7 +541,7 @@ function WordTrainerContent() {
           languageId: detectedLanguage,
           level: 'intermediate',
           pointsValue: pointsValue,
-          explanation: explanation || undefined
+          ...(explanation && { explanation })
         };
 
         if (!categorizedQuestions[detectedLanguage]) {

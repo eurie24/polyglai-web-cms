@@ -171,7 +171,7 @@ function CreateWordTrainerContent() {
         correctAnswer: formData.correctAnswer,
         languageId: formData.languageId.toLowerCase(),
         pointsValue: Number(formData.pointsValue),
-        explanation: formData.explanation || null,
+        ...(formData.explanation && { explanation: formData.explanation }),
       });
       
       // Redirect back to language-specific list if provided
