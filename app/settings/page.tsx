@@ -18,6 +18,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeSettingsItem, setActiveSettingsItem] = useState('preferences');
   const [microphoneAutoStop, setMicrophoneAutoStop] = useState<boolean>(true);
   const [soundEffectsEnabled, setSoundEffectsEnabled] = useState<boolean>(true);
@@ -510,8 +511,8 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
-      <div className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} h-screen sticky top-0 bg-white shadow-lg relative transition-all duration-300 ease-in-out overflow-hidden`}>
+      {/* Sidebar - desktop (lg+) */}
+      <div className={`hidden lg:block ${isSidebarCollapsed ? 'w-20' : 'w-64'} h-screen sticky top-0 bg-white shadow-lg relative transition-all duration-300 ease-in-out overflow-hidden`}>
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
           <div className="overflow-hidden">
             {!isSidebarCollapsed && (
@@ -648,8 +649,139 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* Mobile menu backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-[12000] lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar - mobile drawer */}
+      {sidebarOpen && (
+        <div
+          className="fixed z-[13000] top-0 left-0 w-64 h-full bg-white lg:hidden"
+          role="dialog" aria-modal="true"
+        >
+          <div className="w-64 h-screen bg-white shadow-lg relative overflow-hidden">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+              <Image 
+                src="/logo_name.png" 
+                alt="PolyglAI" 
+                width={140} 
+                height={40} 
+                className="h-8 w-auto"
+              />
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="p-2 rounded-md text-gray-600 hover:bg-gray-100"
+                aria-label="Close menu"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <nav className="mt-4 px-2">
+              <button
+                onClick={() => { setActiveSettingsItem('preferences'); setSidebarOpen(false); }}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
+                  activeSettingsItem === 'preferences' 
+                    ? 'bg-[#0277BD] text-white' 
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.607 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Preferences
+              </button>
+              <button
+                onClick={() => { setActiveSettingsItem('profile'); setSidebarOpen(false); }}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
+                  activeSettingsItem === 'profile' 
+                    ? 'bg-[#0277BD] text-white' 
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.121 17.804A13.937 13.937 0 0112 15c2.5 0 4.847.655 6.879 1.804M15 11a3 3 0 10-6 0 3 3 0 006 0z" />
+                </svg>
+                Profile
+              </button>
+              <button
+                onClick={() => { setActiveSettingsItem('account'); setSidebarOpen(false); }}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
+                  activeSettingsItem === 'account' 
+                    ? 'bg-[#0277BD] text-white' 
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+                Account
+              </button>
+              <button
+                onClick={() => { setActiveSettingsItem('privacy'); setSidebarOpen(false); }}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
+                  activeSettingsItem === 'privacy' 
+                    ? 'bg-[#0277BD] text-white' 
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                Privacy
+              </button>
+              <button
+                onClick={() => { setActiveSettingsItem('help'); setSidebarOpen(false); }}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
+                  activeSettingsItem === 'help' 
+                    ? 'bg-[#0277BD] text-white' 
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Help Center
+              </button>
+            </nav>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
-      <div className={`flex-1 transition-all duration-300 ${isSidebarCollapsed ? 'p-4 lg:p-8' : 'p-8'}`}>
+      <div className={`flex-1 transition-all duration-300 ${isSidebarCollapsed ? 'p-4 lg:p-8' : 'p-4 md:p-8'}`}>
+        {/* Mobile top bar with centered logo + hamburger */}
+        <div className="lg:hidden sticky top-0 z-[11000] px-4 py-3 bg-white border-b border-gray-200">
+          <div className="grid grid-cols-3 items-center">
+            <div className="flex items-center">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="p-2 rounded-md text-gray-600 hover:bg-gray-100"
+                aria-label="Open menu"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex items-center justify-center">
+              <Image 
+                src="/polyglai_logo.png" 
+                alt="PolyglAI" 
+                width={40} 
+                height={40} 
+                className="h-8 w-8"
+              />
+            </div>
+            <div />
+          </div>
+        </div>
         <div className={`${isSidebarCollapsed ? 'max-w-7xl' : 'max-w-4xl'} mx-auto`}>
           <h1 className={`font-bold text-gray-900 mb-8 ${
             isSidebarCollapsed ? 'text-2xl lg:text-3xl' : 'text-3xl'
@@ -867,32 +999,38 @@ export default function SettingsPage() {
               {showPrivacyModal && (
                 <Modal onClose={() => setShowPrivacyModal(false)} title="PolyglAI Privacy Policy">
                   <div style={{ fontFamily: 'Orbitron, sans-serif' }}>
-                  <p className="text-sm text-gray-700 mb-4">PolyglAI values your privacy. This policy explains how we collect, use, and protect your information when you use our app.</p>
+                  <p className="text-sm text-gray-700 mb-4">This Privacy Policy explains how PolyglAI collects, uses, stores, and protects your information when you use our mobile and web applications. By accessing PolyglAI, you consent to the data practices described below.</p>
                   <PolicySection title="1. Information We Collect" content={
-                    `When you create an account and use PolyglAI, we may collect:\n\nDuring Onboarding:\n• Language Selection (to personalize your lessons)\n• Age (to provide age-appropriate learning features and comply with regulations)\n• Gender (optional, for personalization only)\n• Profession (to better understand our user community)\n• Location (to offer relevant language packs and track regional usage)\n• How you heard about PolyglAI (for internal analytics and app improvement)\n\nDuring App Use:\n• Account details (name, email, password)\n• Learning data (languages you study, lessons completed, scores, streaks, achievements)\n• Device information (basic details like app version, device type, and operating system for performance monitoring)\n\nWe do not collect payment or financial information since PolyglAI is free to use.`
+                    `PolyglAI collects limited personal and technical information necessary for app functionality and improvement, including:\n\nUser-Provided Data: Information you voluntarily provide during onboarding (e.g., name, age, gender, language preference, location, profession).\nUsage Data: Interactions with modules (pronunciation assessments, word trainer, translations, etc.) for analytics and system enhancement.\nDevice Information: Non-identifiable technical data such as browser type, OS version, and device model for compatibility optimization.\n\nNo biometric, financial, or sensitive personal data is collected.`
                   } />
-                  <PolicySection title="2. How We Use Your Information" content={
-                    `We use your information to:\n• Personalize your learning experience\n• Track your progress, streaks, and achievements\n• Improve app features and design based on user demographics\n• Monitor app performance and fix bugs\n• Understand how users discover PolyglAI (to improve outreach)\n• Send important notifications (e.g., updates to terms or new features)\n\nWe do not sell or share your data with third parties for advertising.`
+                  <PolicySection title="2. Purpose of Data Collection" content={
+                    `All collected data serves the following purposes:\n• To analyze app performance and improve user experience.\n• To track learning progress, assessment accuracy, and engagement analytics.\n• To provide technical support and fix reported issues.\n• To ensure security, prevent misuse, and maintain compliance with data regulations.\n\nPolyglAI does not use data for personalized advertising or third-party marketing.`
                   } />
-                  <PolicySection title="3. Data Security" content={
-                    `Your data is stored securely and protected against unauthorized access.\nWhile we work hard to keep your information safe, no system is 100% secure, so we cannot guarantee complete protection.`
+                  <PolicySection title="3. Data Storage and Security" content={
+                    `All data is securely stored using Microsoft Azure Cloud Infrastructure, which complies with ISO/IEC 27001 and GDPR standards. Encryption (SSL/TLS) and access controls are implemented to protect data from unauthorized access, alteration, or loss.`
                   } />
-                  <PolicySection title="4. Children's Privacy" content={
-                    `PolyglAI can be used by learners of all ages. However, if you are under 13, we recommend using the app with parental guidance.`
+                  <PolicySection title="4. Data Sharing and Disclosure" content={
+                    `PolyglAI does not sell, rent, or trade user information. Data may be shared only under the following circumstances:\n• When required by law or court order.\n• With service providers assisting in technical maintenance, bound by strict confidentiality agreements.\n• For aggregated analytics reports, where no personally identifiable information is disclosed.`
                   } />
-                  <PolicySection title="5. Third-Party Services" content={
-                    `PolyglAI may use third-party services (such as analytics tools) to help improve the app. These services only collect non-identifiable usage data.`
+                  <PolicySection title="5. Data Retention and Deletion" content={
+                    `User data is retained only for as long as necessary to fulfill its purpose. Users can permanently delete their accounts and all associated data through the Privacy Settings → Delete My Account option. Once deleted, data cannot be recovered.`
                   } />
-                  <PolicySection title="6. Your Choices" content={
-                    `You can update or delete your onboarding details (language, age, gender, profession, location, referral source) in Settings → Account → Profile.\nYou may request permanent deletion of your account and data through the Feedback option under Support.`
+                  <PolicySection title="6. Children’s Data" content={
+                    `For users under 13 years of age, only minimal data necessary for functionality (e.g., progress tracking, language preference) is collected. PolyglAI does not request or store sensitive information from minors. Parents or guardians may request account deletion or data review at any time.`
                   } />
-                  <PolicySection title="7. Changes to This Policy" content={
-                    `We may update this Privacy Policy from time to time. If we make significant changes, we'll notify you in the app.`
+                  <PolicySection title="7. User Rights" content={
+                    `Users have the right to:\n• Access and review the data stored in their accounts.\n• Request data correction or deletion.\n• Withdraw consent to data processing.\n• Be informed of any data breaches in accordance with applicable laws.`
                   } />
-                  <PolicySection title="8. Support & Feedback" content={
-                    `If you have questions about this Privacy Policy, you can reach us through the Feedback option under Settings → Support.`
+                  <PolicySection title="8. Third-Party Integrations" content={
+                    `PolyglAI uses Microsoft Azure Cognitive Services and Google Authentication for secure access. These third-party providers comply with international privacy standards and only process user data to the extent required for authentication and AI-based analysis.`
                   } />
-                  <div className="mt-5 text-xs text-gray-500 italic">Last Revised: August 30, 2025</div>
+                  <PolicySection title="9. Policy Updates" content={
+                    `PolyglAI may update this Privacy Policy periodically to reflect changes in data handling practices or legal requirements. Users will be notified of any updates through in-app notifications or email (if provided). Continued use of PolyglAI indicates acceptance of the updated policy.`
+                  } />
+                  <PolicySection title="10. Contact Information" content={
+                    `For inquiries regarding this policy, data use, or account management, users may contact the PolyglAI Development Team via email at: polyglaitool@gmail.com`
+                  } />
+                  <div className="mt-5 text-xs text-gray-500 italic">Last Revised: October 14, 2025</div>
                   <div className="mt-6"><button className="w-full px-4 py-2 bg-[#29B6F6] hover:bg-[#0277BD] text-white rounded-lg" onClick={() => setShowPrivacyModal(false)}>I Understand</button></div>
                   </div>
                 </Modal>
@@ -901,17 +1039,18 @@ export default function SettingsPage() {
               {showTermsModal && (
                 <Modal onClose={() => setShowTermsModal(false)} title="PolyglAI Terms of Use">
                   <div style={{ fontFamily: 'Orbitron, sans-serif' }}>
-                  <p className="text-sm text-gray-700 mb-4">Welcome to PolyglAI! By using our app, you agree to the following terms. Please read them carefully.</p>
-                  <PolicySection title="1. Purpose of PolyglAI" content={`PolyglAI is a free language learning app designed to help users practice vocabulary, pronunciation, and translation across multiple languages.`} />
-                  <PolicySection title="2. Age Requirement" content={`PolyglAI is designed for learners of all ages. However, if you are under 13, we recommend using the app with parental guidance. By using PolyglAI, you confirm that you meet this requirement or have permission from a parent/guardian.`} />
-                  <PolicySection title="3. User Responsibilities" content={`You agree to use PolyglAI for personal, non-commercial learning.\nDo not misuse the app (e.g., hacking, spreading harmful content, or violating laws).`} />
-                  <PolicySection title="4. Account & Privacy" content={`You are responsible for keeping your login information safe.\nAny personal information you provide (such as your name, email, or chosen languages) will be kept secure and used only to improve your learning experience.\nWe will never sell your data to third parties.`} />
-                  <PolicySection title="5. Content" content={`Vocabulary, lessons, and translations are provided for educational purposes.\nWe aim for accuracy, but PolyglAI may not always provide perfect translations. Please use your judgment when applying them in real-life contexts.`} />
-                  <PolicySection title="6. Availability" content={`PolyglAI is offered "as is." While we work hard to keep everything running smoothly, we cannot guarantee the app will always be available without interruptions.`} />
-                  <PolicySection title="7. Intellectual Property & Trademarks" content={`The name PolyglAI, the PolyglAI logo, and all related marks are trademarks of PolyglAI.\nYou may not copy, distribute, or modify our branding, content, or design without permission.\nAll other trademarks, product names, or company names mentioned within the app are the property of their respective owners.`} />
-                  <PolicySection title="8. Changes to Terms" content={`We may update these terms from time to time. If we do, we'll notify you in the app so you can review the changes.`} />
-                  <PolicySection title="9. Support & Feedback" content={`If you need help, please check the Help Center under Settings → Support. You can also send us suggestions or report issues through the Feedback option.`} />
-                  <div className="mt-5 text-xs text-gray-500 italic">Last Revised: August 30, 2025</div>
+                  <p className="text-sm text-gray-700 mb-4">Welcome to PolyglAI, an AI-powered multilingual mobile and web application designed to support pronunciation assessment, translation, and vocabulary training in five major languages: English, Mandarin, Japanese (Nihongo), Korean (Hangugeo), and Spanish (Español). By downloading, accessing, or using PolyglAI, you agree to comply with and be bound by the following Terms of Use. Please read them carefully before continuing.</p>
+                  <PolicySection title="1. Purpose of PolyglAI" content={`PolyglAI is an educational tool developed for language learning and pronunciation improvement through artificial intelligence. The app integrates Microsoft Azure Speech AI, Natural Language Processing (NLP), Computer Vision (OCR), and Document Intelligence technologies to provide interactive and data-driven language learning. The system is intended for personal and educational use only and may not be used for commercial purposes without written consent from the developers.`} />
+                  <PolicySection title="2. Eligibility and Age Requirement" content={`PolyglAI is designed for learners of all ages. However, in compliance with the Children’s Online Privacy Protection Act (COPPA) and related international standards, users under 13 years old are required to use the app under parental or guardian supervision. By using PolyglAI, you confirm that you meet this requirement or have obtained consent from a parent or legal guardian.`} />
+                  <PolicySection title="3. User Responsibilities" content={`By using PolyglAI, you agree to:\n• Use the app solely for language learning and personal development.\n• Avoid activities that could harm, disrupt, or misuse the system, including hacking, reverse engineering, or spreading malicious content.\n• Respect intellectual property rights, refrain from uploading inappropriate materials, and follow all applicable laws in your country of use.\n\nViolations of these terms may result in the suspension or termination of your account without prior notice.`} />
+                  <PolicySection title="4. Account Registration and Security" content={`Users are responsible for safeguarding their login credentials and maintaining the confidentiality of their account information. Any activity performed under a user’s account is the user’s responsibility. If unauthorized access is suspected, users must notify the developers immediately.`} />
+                  <PolicySection title="5. Data and Privacy Protection" content={`PolyglAI collects only essential data to improve user experience, including demographic details provided during onboarding (age, gender, profession, and location). Data is stored securely and used strictly for analytics purposes not personalization. Personal data is never sold or shared with third parties without consent.`} />
+                  <PolicySection title="6. Content and Educational Materials" content={`All translations, pronunciations, and vocabulary materials are provided for educational use. While the developers strive for accuracy, translations or AI-generated content may occasionally contain errors. Users are advised to apply personal discretion and cross-reference critical translations in professional or formal use.`} />
+                  <PolicySection title="7. Accessibility and Availability" content={`PolyglAI is provided “as is” and “as available.” The developers aim to maintain consistent functionality but cannot guarantee uninterrupted access due to technical maintenance, server downtime, or updates.`} />
+                  <PolicySection title="8. Intellectual Property Rights" content={`The PolyglAI name, logo, and all related content including the user interface, design elements, and learning materials are the intellectual property of the developers. Users may not copy, modify, distribute, or reproduce any part of the application without written authorization.`} />
+                  <PolicySection title="9. Feedback and Support" content={`Users are encouraged to share feedback, report bugs, or suggest improvements through the in-app Feedback section or Help Center. Submitted feedback may be used to enhance future versions of PolyglAI without compensation.`} />
+                  <PolicySection title="10. Updates and Modifications" content={`PolyglAI reserves the right to update these Terms of Use periodically. Changes will be communicated within the application, and continued use after such updates indicates acceptance of the new terms.`} />
+                  <div className="mt-5 text-xs text-gray-500 italic">Last Revised: October 14, 2025</div>
                   <div className="mt-6"><button className="w-full px-4 py-2 bg-[#29B6F6] hover:bg-[#0277BD] text-white rounded-lg" onClick={() => setShowTermsModal(false)}>I Understand</button></div>
                   </div>
                 </Modal>

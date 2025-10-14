@@ -1086,8 +1086,14 @@ function EvalPageContent() {
           const initialText = params.get('text');
           if (initialText) {
             const matchIdx = list.findIndex(it => compareTexts(it.value || '', initialText, languageCode));
-            setIndex(matchIdx >= 0 ? matchIdx : 0);
-            setTargetText(initialText);
+            if (matchIdx >= 0) {
+              setIndex(matchIdx);
+              setTargetText(initialText);
+            } else {
+              // If the URL param doesn't match any fetched item, use the first Firestore item
+              setIndex(0);
+              setTargetText(list[0].value);
+            }
           } else {
             setIndex(0);
             setTargetText(list[0].value);

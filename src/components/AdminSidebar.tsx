@@ -7,9 +7,10 @@ import Image from 'next/image';
 type AdminSidebarProps = {
   active?: 'dashboard' | 'languages' | 'word-trainer' | 'users' | 'feedbacks';
   className?: string;
+  hideHeader?: boolean;
 };
 
-export default function AdminSidebar({ active, className }: AdminSidebarProps) {
+export default function AdminSidebar({ active, className, hideHeader }: AdminSidebarProps) {
   const item = (href: string, label: string, icon: React.ReactElement, key: AdminSidebarProps['active']) => (
     <Link
       href={href}
@@ -22,11 +23,13 @@ export default function AdminSidebar({ active, className }: AdminSidebarProps) {
 
   return (
     <div className={`w-64 h-screen sticky top-0 bg-[#0277BD] shadow-md text-white shrink-0 overflow-hidden ${className || ''}`}>
-      <div className="p-6 border-b border-[#29B6F6]/30">
-        <Link href="/dashboard" aria-label="Go to Dashboard">
-          <Image src="/logo_txt.png" alt="PolyglAI" width={140} height={45} className="h-10 w-auto cursor-pointer" />
-        </Link>
-      </div>
+      {!hideHeader && (
+        <div className="p-6 border-b border-[#29B6F6]/30">
+          <Link href="/dashboard" aria-label="Go to Dashboard">
+            <Image src="/logo_txt.png" alt="PolyglAI" width={140} height={45} className="h-10 w-auto cursor-pointer" />
+          </Link>
+        </div>
+      )}
       <nav className="mt-6">
         <div className="px-4 space-y-1">
           {item('/dashboard', 'Dashboard', (

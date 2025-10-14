@@ -705,16 +705,68 @@ const doesGenderMatch = (userGender: string | undefined, filterGender: string): 
   return (
     <AdminProtection>
       <div className="flex min-h-screen bg-gray-50">
-        {/* Sidebar */}
-        <AdminSidebar active="dashboard" />
+        {/* Sidebar - desktop */}
+        <div className="hidden md:block">
+          <AdminSidebar active="dashboard" />
+        </div>
+
+        {/* Mobile menu backdrop */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 bg-black/40 z-[90] md:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
+        {/* Sidebar - mobile drawer */}
+        <div
+          className={`fixed z-[100] inset-y-0 left-0 w-64 transform bg-[#0277BD] md:hidden transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+          aria-hidden={!sidebarOpen}
+        >
+          <div className="w-64 h-screen bg-[#0277BD] text-white">
+            {/* Mobile header: logo on left, X on right */}
+            <div className="p-4 border-b border-white/20 flex items-center justify-between">
+              <Image src="/logo_txt.png" alt="PolyglAI" width={120} height={36} className="h-8 w-auto" />
+              <button onClick={() => setSidebarOpen(false)} className="p-2 rounded-md hover:bg-white/10" aria-label="Close menu">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <AdminSidebar hideHeader active="dashboard" />
+          </div>
+        </div>
 
         {/* Main Content */}
         <div className="flex-1 bg-gradient-to-br from-[#0277BD]/10 to-[#29B6F6]/5 min-w-0">
           {/* Top Navigation */}
           <div className="bg-white shadow-sm border-b border-[#29B6F6]/20">
             <div className="px-3 lg:px-4 xl:px-8">
+              {/* Mobile top bar */}
+              <div className="md:hidden py-3">
+                <div className="grid grid-cols-3 items-center">
+                  <div className="flex items-center">
+                    <button
+                      onClick={() => setSidebarOpen(true)}
+                      className="p-2 rounded-md text-gray-600 hover:bg-gray-100"
+                      aria-label="Open menu"
+                    >
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-center">
+                    <Link href="/dashboard" aria-label="Go to Dashboard">
+                      <Image src="/polyglai_logo.png" alt="PolyglAI" width={40} height={40} className="h-8 w-8" />
+                    </Link>
+                  </div>
+                  <div />
+                </div>
+              </div>
+
               <div className="flex justify-between items-center h-12 lg:h-14 xl:h-16">
-                <div className="flex space-x-2 lg:space-x-3 xl:space-x-4 overflow-x-auto">
+                <div className="flex items-center space-x-2 lg:space-x-3 xl:space-x-4 overflow-x-auto">
                   <button 
                     onClick={() => setActiveTab('demographics')}
                     className={`px-2 lg:px-3 xl:px-4 py-1 lg:py-2 rounded-md whitespace-nowrap text-xs lg:text-sm xl:text-base ${activeTab === 'demographics' ? 'bg-[#29B6F6]/20 text-[#0277BD]' : 'text-gray-800'}`}
@@ -752,7 +804,7 @@ const doesGenderMatch = (userGender: string | undefined, filterGender: string): 
                     </div>
                   </button>
                 </div>
-                <div className="hidden lg:block">
+                <div>
                   <button 
                     onClick={handleSignOut}
                     className="text-[#1A237E] hover:text-red-600 text-xs lg:text-sm xl:text-base"

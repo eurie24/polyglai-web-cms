@@ -181,6 +181,7 @@ function UserDashboardContent() {
   const [intermediateTotalItems, setIntermediateTotalItems] = useState(0);
   const [activeSection, setActiveSection] = useState('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   
   // Badge state
   const [userBadges, setUserBadges] = useState<Record<string, boolean>>({});
@@ -1839,8 +1840,8 @@ function UserDashboardContent() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
-      <div className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} h-screen sticky top-0 bg-white shadow-lg relative transition-all duration-300 ease-in-out overflow-hidden`}>
+      {/* Sidebar - desktop (lg+) */}
+      <div className={`hidden lg:block ${isSidebarCollapsed ? 'w-20' : 'w-64'} h-screen sticky top-0 bg-white shadow-lg relative transition-all duration-300 ease-in-out overflow-hidden`}>
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
           <div className="overflow-hidden">
             {!isSidebarCollapsed && (
@@ -1950,8 +1951,136 @@ function UserDashboardContent() {
         </div>
       </div>
 
+      {/* Mobile menu backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-[12000] lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar - mobile drawer */}
+      {sidebarOpen && (
+        <div
+          className="fixed z-[13000] top-0 left-0 w-64 h-full bg-white lg:hidden"
+          role="dialog" aria-modal="true"
+        >
+          <div className="w-64 h-screen bg-white shadow-lg relative overflow-hidden">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+              <Image 
+                src="/logo_name.png" 
+                alt="PolyglAI" 
+                width={140} 
+                height={40} 
+                className="h-8 w-auto"
+              />
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="p-2 rounded-md text-gray-600 hover:bg-gray-100"
+                aria-label="Close menu"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <nav className="mt-4 px-2">
+              <button
+                onClick={() => { setActiveSection('dashboard'); setSidebarOpen(false); }}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
+                  activeSection === 'dashboard' 
+                    ? 'bg-[#0277BD] text-white' 
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z" />
+                </svg>
+                Dashboard
+              </button>
+              <button
+                onClick={() => { setActiveSection('translate'); setSidebarOpen(false); }}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
+                  activeSection === 'translate' 
+                    ? 'bg-[#0277BD] text-white' 
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                </svg>
+                Translate
+              </button>
+              <button
+                onClick={() => { setActiveSection('level-up'); setSidebarOpen(false); }}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
+                  activeSection === 'level-up' 
+                    ? 'bg-[#0277BD] text-white' 
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                Level Up
+              </button>
+              <button
+                onClick={() => { setActiveSection('profile'); setSidebarOpen(false); }}
+                className={`w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors ${
+                  activeSection === 'profile' 
+                    ? 'bg-[#0277BD] text-white' 
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.121 17.804A13.937 13.937 0 0112 15c2.5 0 4.847.655 6.879 1.804M15 11a3 3 0 10-6 0 3 3 0 006 0z" />
+                </svg>
+                Profile
+              </button>
+              <Link
+                href="/settings"
+                onClick={() => setSidebarOpen(false)}
+                className="w-full flex items-center px-4 py-3 text-left rounded-lg transition-colors text-gray-700 hover:bg-gray-100"
+              >
+                <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.607 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Settings
+              </Link>
+            </nav>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
-      <div className={`flex-1 transition-all duration-300 ${isSidebarCollapsed ? 'p-4 lg:p-8' : 'p-8'}`}>
+      <div className={`flex-1 transition-all duration-300 ${isSidebarCollapsed ? 'p-4 lg:p-8' : 'p-4 md:p-8'}`}>
+        {/* Mobile top bar with centered logo + hamburger */}
+        <div className="lg:hidden sticky top-0 z-[11000] px-4 py-3 bg-white border-b border-gray-200">
+          <div className="grid grid-cols-3 items-center">
+            <div className="flex items-center">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="p-2 rounded-md text-gray-600 hover:bg-gray-100"
+                aria-label="Open menu"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex items-center justify-center">
+              <Image 
+                src="/polyglai_logo.png" 
+                alt="PolyglAI" 
+                width={40} 
+                height={40} 
+                className="h-8 w-8"
+              />
+            </div>
+            <div />
+          </div>
+        </div>
         {activeSection === 'dashboard' && (
           <div className={`${isSidebarCollapsed ? 'max-w-7xl' : 'max-w-4xl'} mx-auto`}>
             {/* Greeting */}
