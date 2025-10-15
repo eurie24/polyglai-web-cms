@@ -222,7 +222,13 @@ function UserDashboardContent() {
   const [editAvatar, setEditAvatar] = useState('/updated avatars/3.svg');
   const normalizeAssetPath = (p?: string): string => {
     if (!p) return '';
-    return p.startsWith('assets/') ? `/${p.replace(/^assets\//, '')}` : p;
+    const raw = (p || '').trim();
+    if (raw.startsWith('/') || /^https?:\/\//i.test(raw)) return raw;
+    if (raw.startsWith('assets/')) return `/${raw.replace(/^assets\//, '')}`;
+    if (raw.startsWith('/assets/')) return `/${raw.replace(/^\/assets\//, '')}`;
+    if (raw.startsWith('updated avatars/')) return `/${raw}`;
+    if (/^\d+\.svg$/i.test(raw)) return `/updated avatars/${raw}`;
+    return `/${raw}`;
   };
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_isSavingProfile, setIsSavingProfile] = useState(false);
@@ -638,9 +644,10 @@ function UserDashboardContent() {
       // Start loading assessment data in background
       loadAssessmentData();
       
-      // Set target language to user's preferred language
-      if (profile) {
-        setTargetLanguage(profile.preferredLanguage);
+      // Set target language to user's preferred language (convert to display name)
+      if (profile && profile.preferredLanguage) {
+        const displayName = getLanguageDisplayName(profile.preferredLanguage);
+        setTargetLanguage(displayName);
       }
 
     } catch (error) {
@@ -664,14 +671,16 @@ function UserDashboardContent() {
           const unsubMain = onSnapshot(mainDocRef, (snap) => {
             const d = snap.data() as { avatarUrl?: string; name?: string } | undefined;
             if (d && (d.avatarUrl || d.name)) {
-              setUserProfile(prev => prev ? ({ ...prev, name: d.name || prev.name, avatarUrl: d.avatarUrl || prev.avatarUrl }) : prev);
+              const avatar = normalizeAssetPath(d.avatarUrl || (userProfile?.avatarUrl ?? ''));
+              setUserProfile(prev => prev ? ({ ...prev, name: d.name || prev.name, avatarUrl: avatar || prev.avatarUrl }) : prev);
             }
           });
           const unsubProfile = onSnapshot(profileDocRef, (snap) => {
             if (snap.exists()) {
               const d = snap.data() as { avatarUrl?: string; name?: string };
               if (d && (d.avatarUrl || d.name)) {
-                setUserProfile(prev => prev ? ({ ...prev, name: d.name || prev.name, avatarUrl: d.avatarUrl || prev.avatarUrl }) : prev);
+                const avatar = normalizeAssetPath(d.avatarUrl || (userProfile?.avatarUrl ?? ''));
+                setUserProfile(prev => prev ? ({ ...prev, name: d.name || prev.name, avatarUrl: avatar || prev.avatarUrl }) : prev);
               }
             }
           });
@@ -2414,7 +2423,11 @@ function UserDashboardContent() {
                         className="flex items-center space-x-2 bg-white rounded-2xl px-4 py-3 hover:bg-gray-50 transition-colors w-full"
                       >
                         <span className="font-semibold text-gray-900">{targetLanguage}</span>
-                        <img src={languageMap[targetLanguage as keyof typeof languageMap]?.flag} alt={targetLanguage} className="w-6 h-6" />
+                        <img 
+                          src={languageMap[targetLanguage as keyof typeof languageMap]?.flag || '/flags/usa_icon.png'} 
+                          alt={`${targetLanguage} flag`} 
+                          className="w-6 h-6 object-contain"
+                        />
                         <svg className={`w-4 h-4 ml-auto transition-transform ${showTargetLangSelector ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
                         </svg>
@@ -2432,8 +2445,12 @@ function UserDashboardContent() {
                               }}
                               className="w-full flex items-center space-x-3 p-3 hover:bg-gray-50 transition-colors text-left first:rounded-t-xl last:rounded-b-xl"
                             >
-                              <img src={languageMap[lang as keyof typeof languageMap]?.flag} alt={lang} className="w-5 h-5" />
                               <span className="font-medium text-gray-900">{lang}</span>
+                              <img 
+                                src={languageMap[lang as keyof typeof languageMap]?.flag || '/flags/usa_icon.png'} 
+                                alt={`${lang} flag`} 
+                                className="w-5 h-5 ml-auto object-contain"
+                              />
                             </button>
                           ))}
                         </div>
@@ -2674,7 +2691,11 @@ function UserDashboardContent() {
                         className="flex items-center space-x-2 bg-white rounded-2xl px-4 py-3 hover:bg-gray-50 transition-colors w-full"
                       >
                         <span className="font-semibold text-gray-900">{targetLanguage}</span>
-                        <img src={languageMap[targetLanguage as keyof typeof languageMap]?.flag} alt={targetLanguage} className="w-6 h-6" />
+                        <img 
+                          src={languageMap[targetLanguage as keyof typeof languageMap]?.flag || '/flags/usa_icon.png'} 
+                          alt={`${targetLanguage} flag`} 
+                          className="w-6 h-6 object-contain"
+                        />
                         <svg className={`w-4 h-4 ml-auto transition-transform ${showTargetLangSelector ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
                         </svg>
@@ -2692,8 +2713,12 @@ function UserDashboardContent() {
                               }}
                               className="w-full flex items-center space-x-3 p-3 hover:bg-gray-50 transition-colors text-left first:rounded-t-xl last:rounded-b-xl"
                             >
-                              <img src={languageMap[lang as keyof typeof languageMap]?.flag} alt={lang} className="w-5 h-5" />
                               <span className="font-medium text-gray-900">{lang}</span>
+                              <img 
+                                src={languageMap[lang as keyof typeof languageMap]?.flag || '/flags/usa_icon.png'} 
+                                alt={`${lang} flag`} 
+                                className="w-5 h-5 ml-auto object-contain"
+                              />
                             </button>
                           ))}
                         </div>
@@ -2868,11 +2893,6 @@ function UserDashboardContent() {
                     >
                       <div className="border-t border-gray-200 pt-4">
                         <h3 className="text-lg font-bold text-gray-900 mb-3 text-center">Select Difficulty</h3>
-                        {getAccentInfo(selectedLanguage?.id || featuredLanguage?.id || preferredLanguage || '') && (
-                          <p className="text-sm text-gray-600 text-center mb-3">
-                            {getAccentInfo(selectedLanguage?.id || featuredLanguage?.id || preferredLanguage || '')}
-                          </p>
-                        )}
                         <div className="space-y-2">
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDifficultySelect('beginner'); }}
@@ -2919,11 +2939,6 @@ function UserDashboardContent() {
                       <div className={`overflow-hidden transition-all duration-300 ${selectedLanguage && selectedLanguage.id === language.id ? 'max-h-64 opacity-100 mt-3' : 'max-h-0 opacity-0'} `}>
                         <div className="border-t border-gray-200 pt-3">
                           <h4 className="text-md font-bold text-gray-900 mb-2 text-center">Select Difficulty</h4>
-                          {getAccentInfo(language.id) && (
-                            <p className="text-xs text-gray-600 text-center mb-2">
-                              {getAccentInfo(language.id)}
-                            </p>
-                          )}
                           <div className="space-y-2">
                             <button
                               onClick={(e) => { e.stopPropagation(); handleDifficultySelect('beginner'); }}

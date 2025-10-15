@@ -1,0 +1,30 @@
+
+> web-cms@0.1.0 dev
+> next dev
+
+ ⚠ Port 3000 is in use, using available port 3002 instead.
+node:os:271
+  const data = getInterfaceAddresses();
+               ^
+
+NodeError [SystemError]: A system error occurred: uv_interface_addresses returned Unknown system error 1 (Unknown system error 1)
+    at Object.networkInterfaces (node:os:271:16)
+    at getNetworkHosts (/Users/yuriandalajao/StudioProjects/polyglai/web-cms/node_modules/next/dist/lib/get-network-host.js:18:36)
+    at getNetworkHost (/Users/yuriandalajao/StudioProjects/polyglai/web-cms/node_modules/next/dist/lib/get-network-host.js:40:19)
+    at Server.<anonymous> (/Users/yuriandalajao/StudioProjects/polyglai/web-cms/node_modules/next/dist/server/lib/start-server.js:218:84)
+    at Server.emit (node:events:519:35)
+    at emitListeningNT (node:net:1980:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'ERR_SYSTEM_ERROR',
+  info: {
+    errno: 1,
+    code: 'Unknown system error 1',
+    message: 'Unknown system error 1',
+    syscall: 'uv_interface_addresses'
+  },
+  errno: [Getter/Setter],
+  syscall: [Getter/Setter]
+}
+
+Node.js v23.7.0
+[?25h

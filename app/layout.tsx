@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Orbitron } from "next/font/google";
 import "./globals.css";
 import ThemeProvider from "./theme-provider";
+import { SignInDialogProvider } from "../src/hooks/useSignInDialog";
+import { Suspense } from "react";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -39,7 +41,11 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} ${orbitron.variable} antialiased light bg-gray-50`}
         suppressHydrationWarning
       >
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <Suspense fallback={<div>Loading...</div>}>
+            <SignInDialogProvider>{children}</SignInDialogProvider>
+          </Suspense>
+        </ThemeProvider>
       </body>
     </html>
   );

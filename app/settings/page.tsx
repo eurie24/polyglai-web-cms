@@ -218,7 +218,18 @@ export default function SettingsPage() {
 
   const normalizeAssetPath = (p?: string): string => {
     if (!p) return '';
-    return p.startsWith('assets/') ? `/${p.replace(/^assets\//, '')}` : p;
+    const raw = (p || '').trim();
+    // Already absolute or remote
+    if (raw.startsWith('/') || /^https?:\/\//i.test(raw)) return raw;
+    // Legacy assets prefix (with or without leading slash)
+    if (raw.startsWith('assets/')) return `/${raw.replace(/^assets\//, '')}`;
+    if (raw.startsWith('/assets/')) return `/${raw.replace(/^\/assets\//, '')}`;
+    // Stored as "updated avatars/4.svg"
+    if (raw.startsWith('updated avatars/')) return `/${raw}`;
+    // Bare filename like "4.svg" → default to updated avatars folder
+    if (/^\d+\.svg$/i.test(raw)) return `/updated avatars/${raw}`;
+    // Any other relative path → make it absolute
+    return `/${raw}`;
   };
 
   useEffect(() => {
@@ -987,8 +998,8 @@ export default function SettingsPage() {
                     </button>
                     <button className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50" onClick={() => setShowTermsModal(true)}>
                       <div>
-                        <div className="text-sm text-gray-900">Terms of Service</div>
-                        <div className="text-xs text-gray-500">Read our terms of service</div>
+                        <div className="text-sm text-gray-900">Terms of Use</div>
+                        <div className="text-xs text-gray-500">Read our terms of use</div>
                       </div>
                       <span className="text-gray-400">›</span>
                     </button>
@@ -998,8 +1009,8 @@ export default function SettingsPage() {
 
               {showPrivacyModal && (
                 <Modal onClose={() => setShowPrivacyModal(false)} title="PolyglAI Privacy Policy">
-                  <div style={{ fontFamily: 'Orbitron, sans-serif' }}>
-                  <p className="text-sm text-gray-700 mb-4">This Privacy Policy explains how PolyglAI collects, uses, stores, and protects your information when you use our mobile and web applications. By accessing PolyglAI, you consent to the data practices described below.</p>
+                  <div>
+                  <p className="text-gray-700 mb-4">This Privacy Policy explains how PolyglAI collects, uses, stores, and protects your information when you use our mobile and web applications. By accessing PolyglAI, you consent to the data practices described below.</p>
                   <PolicySection title="1. Information We Collect" content={
                     `PolyglAI collects limited personal and technical information necessary for app functionality and improvement, including:\n\nUser-Provided Data: Information you voluntarily provide during onboarding (e.g., name, age, gender, language preference, location, profession).\nUsage Data: Interactions with modules (pronunciation assessments, word trainer, translations, etc.) for analytics and system enhancement.\nDevice Information: Non-identifiable technical data such as browser type, OS version, and device model for compatibility optimization.\n\nNo biometric, financial, or sensitive personal data is collected.`
                   } />
@@ -1031,6 +1042,9 @@ export default function SettingsPage() {
                     `For inquiries regarding this policy, data use, or account management, users may contact the PolyglAI Development Team via email at: polyglaitool@gmail.com`
                   } />
                   <div className="mt-5 text-xs text-gray-500 italic">Last Revised: October 14, 2025</div>
+                  <div className="mt-4">
+                    <Link href="/privacy" className="text-sm text-[#0277BD] underline">View full Privacy Policy</Link>
+                  </div>
                   <div className="mt-6"><button className="w-full px-4 py-2 bg-[#29B6F6] hover:bg-[#0277BD] text-white rounded-lg" onClick={() => setShowPrivacyModal(false)}>I Understand</button></div>
                   </div>
                 </Modal>
@@ -1038,8 +1052,8 @@ export default function SettingsPage() {
 
               {showTermsModal && (
                 <Modal onClose={() => setShowTermsModal(false)} title="PolyglAI Terms of Use">
-                  <div style={{ fontFamily: 'Orbitron, sans-serif' }}>
-                  <p className="text-sm text-gray-700 mb-4">Welcome to PolyglAI, an AI-powered multilingual mobile and web application designed to support pronunciation assessment, translation, and vocabulary training in five major languages: English, Mandarin, Japanese (Nihongo), Korean (Hangugeo), and Spanish (Español). By downloading, accessing, or using PolyglAI, you agree to comply with and be bound by the following Terms of Use. Please read them carefully before continuing.</p>
+                  <div>
+                  <p className="text-gray-700 mb-4">Welcome to PolyglAI, an AI-powered multilingual mobile and web application designed to support pronunciation assessment, translation, and vocabulary training in five major languages: English, Mandarin, Japanese (Nihongo), Korean (Hangugeo), and Spanish (Español). By downloading, accessing, or using PolyglAI, you agree to comply with and be bound by the following Terms of Use. Please read them carefully before continuing.</p>
                   <PolicySection title="1. Purpose of PolyglAI" content={`PolyglAI is an educational tool developed for language learning and pronunciation improvement through artificial intelligence. The app integrates Microsoft Azure Speech AI, Natural Language Processing (NLP), Computer Vision (OCR), and Document Intelligence technologies to provide interactive and data-driven language learning. The system is intended for personal and educational use only and may not be used for commercial purposes without written consent from the developers.`} />
                   <PolicySection title="2. Eligibility and Age Requirement" content={`PolyglAI is designed for learners of all ages. However, in compliance with the Children’s Online Privacy Protection Act (COPPA) and related international standards, users under 13 years old are required to use the app under parental or guardian supervision. By using PolyglAI, you confirm that you meet this requirement or have obtained consent from a parent or legal guardian.`} />
                   <PolicySection title="3. User Responsibilities" content={`By using PolyglAI, you agree to:\n• Use the app solely for language learning and personal development.\n• Avoid activities that could harm, disrupt, or misuse the system, including hacking, reverse engineering, or spreading malicious content.\n• Respect intellectual property rights, refrain from uploading inappropriate materials, and follow all applicable laws in your country of use.\n\nViolations of these terms may result in the suspension or termination of your account without prior notice.`} />
@@ -1051,6 +1065,9 @@ export default function SettingsPage() {
                   <PolicySection title="9. Feedback and Support" content={`Users are encouraged to share feedback, report bugs, or suggest improvements through the in-app Feedback section or Help Center. Submitted feedback may be used to enhance future versions of PolyglAI without compensation.`} />
                   <PolicySection title="10. Updates and Modifications" content={`PolyglAI reserves the right to update these Terms of Use periodically. Changes will be communicated within the application, and continued use after such updates indicates acceptance of the new terms.`} />
                   <div className="mt-5 text-xs text-gray-500 italic">Last Revised: October 14, 2025</div>
+                  <div className="mt-4">
+                    <Link href="/terms" className="text-sm text-[#0277BD] underline">View full Terms of Use</Link>
+                  </div>
                   <div className="mt-6"><button className="w-full px-4 py-2 bg-[#29B6F6] hover:bg-[#0277BD] text-white rounded-lg" onClick={() => setShowTermsModal(false)}>I Understand</button></div>
                   </div>
                 </Modal>

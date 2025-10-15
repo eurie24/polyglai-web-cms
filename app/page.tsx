@@ -1,6 +1,7 @@
 "use client";
 import Image from "next/image";
 import Link from "next/link";
+import { useSignInDialog } from "../src/hooks/useSignInDialog";
 import { useState, useEffect } from "react";
 
 export default function Home() {
@@ -8,6 +9,7 @@ export default function Home() {
   const [activeFeature, setActiveFeature] = useState(0);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const { open } = useSignInDialog();
 
   const features = [
     {
@@ -122,21 +124,21 @@ export default function Home() {
                 About
               </Link>
               <div className="relative group">
-                <button className="px-6 py-2.5 bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-medium rounded-full hover:from-blue-600 hover:to-cyan-600 transition-all duration-300 flex items-center shadow-lg hover:shadow-xl hover:scale-105">
+                <button onClick={() => open('user')} className="px-6 py-2.5 bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-medium rounded-full hover:from-blue-600 hover:to-cyan-600 transition-all duration-300 flex items-center shadow-lg hover:shadow-xl hover:scale-105">
                   Sign In
                   <svg className="w-4 h-4 ml-2 transition-transform group-hover:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
                 <div className="absolute right-0 mt-3 w-52 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-50 border border-white/20">
-                  <Link href="/login" className="block px-5 py-4 text-gray-700 hover:bg-blue-50 rounded-t-2xl transition-colors flex items-center space-x-3">
+                  <button onClick={() => open('user')} className="w-full text-left block px-5 py-4 text-gray-700 hover:bg-blue-50 rounded-t-2xl transition-colors flex items-center space-x-3">
                     <span className="text-xl">👤</span>
                     <span className="font-medium">User Login</span>
-                  </Link>
-                  <Link href="/admin/login" className="block px-5 py-4 text-gray-700 hover:bg-blue-50 rounded-b-2xl border-t border-gray-100 transition-colors flex items-center space-x-3">
+                  </button>
+                  <button onClick={() => open('admin')} className="w-full text-left block px-5 py-4 text-gray-700 hover:bg-blue-50 rounded-b-2xl border-t border-gray-100 transition-colors flex items-center space-x-3">
                     <span className="text-xl">🔐</span>
                     <span className="font-medium">Admin Login</span>
-                  </Link>
+                  </button>
                 </div>
               </div>
             </nav>
@@ -166,12 +168,12 @@ export default function Home() {
                   About
                 </Link>
                 <div className="pt-2 space-y-2">
-                  <Link href="/login" className="block px-4 py-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors">
+                  <button onClick={() => open('user')} className="block w-full text-left px-4 py-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors">
                     👤 User Login
-                  </Link>
-                  <Link href="/admin/login" className="block px-4 py-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors">
+                  </button>
+                  <button onClick={() => open('admin')} className="block w-full text-left px-4 py-2 bg-white/10 rounded-lg hover:bg-white/20 transition-colors">
                     🔐 Admin Login
-                  </Link>
+                  </button>
                 </div>
               </nav>
             </div>
@@ -205,34 +207,18 @@ export default function Home() {
                 Speak with confidence using PolyglAI! Our AI-powered speech assessment provides real-time feedback, precise pronunciation scoring, and multilingual support. Perfect for learners and educators unlock your fluency today!
               </p>
             
-            {/* Stats */}
-            <div className="flex flex-wrap gap-6 mb-8">
-              <div className="text-center">
-              <div className="text-2xl font-bold text-white">5</div>
-                <div className="text-sm text-white/60">Languages</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-white">99%</div>
-                <div className="text-sm text-white/60">Accuracy</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-white">10K+</div>
-                <div className="text-sm text-white/60">Users</div>
-              </div>
-            </div>
-            
             <div className="flex flex-col sm:flex-row gap-4">
-              <Link
-                href="/login"
+              <button
+                onClick={() => open('user')}
                 className="group px-8 py-4 bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold rounded-2xl hover:from-blue-600 hover:to-cyan-600 transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 flex items-center justify-center"
               >
                 Sign in
                 <svg className="w-5 h-5 ml-2 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
                 </svg>
-              </Link>
+              </button>
               <a
-                href="https://drive.google.com/uc?export=download&id=1LZb1ssuAXGb3eTl4_WI-GPG6juFwDQ-X"
+                href="https://drive.google.com/file/d/1S3VFJk-huZLP2v_sXbmytCJkpuqrAJ1j/view?usp=sharing"
                 download
                 className="group px-8 py-4 border-2 border-white/30 text-white rounded-2xl hover:bg-white/10 hover:border-white/50 transition-all duration-300 flex items-center justify-center backdrop-blur-sm"
               >
@@ -406,52 +392,21 @@ export default function Home() {
       {/* Footer */}
       <footer className="relative z-10 bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 border-t border-white/10">
         <div className="container mx-auto px-6 py-16">
-          <div className="grid md:grid-cols-4 gap-8 mb-12">
+          <div className="grid md:grid-cols-3 gap-8 mb-12">
             {/* Brand */}
             <div className="md:col-span-2">
               <div className="flex items-center space-x-3 mb-4">
-                <div className="w-10 h-10 bg-gradient-to-r from-blue-400 to-cyan-400 rounded-xl flex items-center justify-center">
-                  <span className="text-xl font-bold text-white">P</span>
-                </div>
-                <div className="text-2xl font-bold bg-gradient-to-r from-white to-blue-200 bg-clip-text text-transparent">
-                  PolyglAI
-                </div>
+                <Image
+                  src="/logo-text.png"
+                  alt="PolyglAI wordmark"
+                  width={180}
+                  height={40}
+                  className="h-10 object-contain"
+                />
               </div>
               <p className="text-white/70 mb-6 max-w-md leading-relaxed">
                 Empowering global communication through AI-powered language learning. Break barriers, build connections, and unlock your potential.
               </p>
-              <div className="flex space-x-4">
-                {['twitter', 'facebook', 'linkedin', 'instagram'].map((social) => (
-                  <a
-                    key={social}
-                    href="#"
-                    className="w-10 h-10 bg-white/10 hover:bg-blue-500/30 rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110"
-                  >
-                    <span className="text-white/70 hover:text-white text-sm">🔗</span>
-                  </a>
-                ))}
-              </div>
-            </div>
-            
-            {/* Quick Links */}
-            <div>
-              <h3 className="text-white font-semibold mb-4">Quick Links</h3>
-              <div className="space-y-3">
-                {[
-                  { name: 'Features', href: '#features' },
-                  { name: 'Translation', href: '#translate' },
-                  { name: 'About Us', href: '#about' },
-                  { name: 'Pricing', href: '/pricing' }
-                ].map((link) => (
-                  <Link
-                    key={link.name}
-                    href={link.href}
-                    className="block text-white/70 hover:text-blue-200 transition-colors duration-300 hover:translate-x-1"
-                  >
-                    {link.name}
-                  </Link>
-                ))}
-              </div>
             </div>
             
             {/* Support */}
@@ -460,7 +415,6 @@ export default function Home() {
               <div className="space-y-3">
                 {[
                   { name: 'Help Center', href: '/help' },
-                  { name: 'Contact Us', href: '/contact' },
                   { name: 'Privacy Policy', href: '/privacy' },
                   { name: 'Terms of Service', href: '/terms' }
                 ].map((link) => (
